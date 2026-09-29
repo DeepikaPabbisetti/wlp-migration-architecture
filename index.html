@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Git Push to OpenShift</title>
+<style>
+:root{
+  --bg:#050912; --bg2:#0a1020; --panel:rgba(14,21,38,.74); --panel2:rgba(20,29,50,.78);
+  --line:rgba(148,163,184,.14); --line2:rgba(148,163,184,.24);
+  --tx:#e6edf7; --mut:#8fa0b8; --dim:#5b6b84;
+  --gl:#fc6d26; --ci:#c084fc; --nx:#34d399; --qy:#38bdf8; --hm:#818cf8; --ar:#fb7185;
+  --os:#ff6b6b; --lb:#4f94ff; --k8:#7dd3fc;
+  --idle:#64748b; --proc:#3b82f6; --wait:#fbbf24; --ok:#22c55e; --fail:#ef4444;
+  --sp:1;
+  --sans:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code","SF Mono",Consolas,"Liberation Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--sans);overflow:hidden}
+body{display:grid;grid-template-rows:auto 1fr auto;height:100vh}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.paused *{animation-play-state:paused!important}
+
+/* ---------- header ---------- */
+#top{display:flex;align-items:center;gap:18px;padding:12px 20px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(15,23,42,.9),rgba(8,12,24,.7));z-index:30}
+#brand{display:flex;align-items:center;gap:12px;min-width:0;flex:1}
+#brand .logo{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+  background:linear-gradient(135deg,rgba(252,109,38,.25),rgba(79,148,255,.25));border:1px solid var(--line2)}
+#brand h1{font-size:17px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#brand p{font-size:11.5px;color:var(--mut);margin-top:2px;letter-spacing:.02em}
+.ctrls{display:flex;align-items:center;gap:6px}
+.btn{height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--line2);background:rgba(30,41,59,.55);
+  font-size:12.5px;display:inline-flex;align-items:center;gap:6px;transition:background .2s,border-color .2s}
+.btn:hover{background:rgba(51,65,85,.7);border-color:rgba(148,163,184,.4)}
+.btn.pri{background:linear-gradient(180deg,#2563eb,#1d4ed8);border-color:#3b82f6}
+.btn.on{border-color:var(--qy);color:#bae6fd;background:rgba(14,116,144,.3)}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;height:32px}
+.seg button{padding:0 9px;font-size:12px;color:var(--mut);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:rgba(59,130,246,.25);color:#dbeafe}
+.lbl{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin-right:2px}
+#stepno{font-family:var(--mono);font-size:12px;color:var(--mut);min-width:86px;text-align:right}
+
+/* ---------- main ---------- */
+#main{display:grid;grid-template-columns:1fr 360px;min-height:0}
+#vp{position:relative;overflow:hidden;min-height:0;
+  background:
+   radial-gradient(1200px 600px at 20% 10%,rgba(56,189,248,.06),transparent 60%),
+   radial-gradient(900px 600px at 85% 90%,rgba(192,132,252,.06),transparent 60%),
+   var(--bg)}
+#vp::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(rgba(148,163,184,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.05) 1px,transparent 1px);
+  background-size:32px 32px;mask-image:radial-gradient(ellipse at center,#000 55%,transparent 100%)}
+#stage{position:absolute;left:0;top:0;width:1600px;height:940px;transform-origin:0 0;
+  transition:transform calc(1s / var(--sp)) cubic-bezier(.4,.1,.2,1)}
+.no-anim,.no-anim *{transition:none!important;animation-duration:0s!important}
+svg.layer{position:absolute;left:0;top:0;width:1600px;height:940px;overflow:visible;pointer-events:none}
+#wires{z-index:1}#pk{z-index:60}
+
+/* ---------- side panel ---------- */
+#side{border-left:1px solid var(--line);background:linear-gradient(180deg,rgba(10,16,30,.92),rgba(6,10,20,.95));
+  display:flex;flex-direction:column;min-height:0;overflow:auto;z-index:20}
+.sec{padding:16px 18px;border-bottom:1px solid var(--line)}
+.sec h4{font-size:10.5px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;margin-bottom:10px;font-weight:600}
+#phasechip{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.12em;font-weight:700;
+  padding:4px 9px;border-radius:999px;border:1px solid currentColor;margin-bottom:10px}
+#stitle{font-size:19px;font-weight:650;line-height:1.25;letter-spacing:-.01em}
+#sstate{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-top:4px}
+.qa{margin-top:14px}
+.qa b{display:block;font-size:10.5px;letter-spacing:.14em;color:var(--mut);margin-bottom:5px;font-weight:600}
+.qa p{font-size:13.5px;line-height:1.55;color:#cbd5e1}
+.qa.why p{color:#a5b4c9}
+#insp{min-height:120px}
+#insp .ih{display:flex;align-items:center;gap:8px;font-weight:650;font-size:14px}
+#insp .ih i{width:9px;height:9px;border-radius:3px;background:var(--c,var(--qy))}
+#insp p{font-size:13px;line-height:1.55;color:#b8c5d8;margin-top:7px}
+#insp ul{margin:8px 0 0 16px;font-size:12px;color:var(--mut);line-height:1.6}
+#insp .empty{font-size:12.5px;color:var(--dim);line-height:1.5}
+.jump{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.jump button{text-align:left;font-size:11.5px;padding:8px 9px;border-radius:8px;border:1px solid var(--line);
+  background:rgba(30,41,59,.35);color:var(--mut);display:flex;gap:7px;align-items:center;transition:.2s}
+.jump button:hover{border-color:var(--line2);color:var(--tx)}
+.jump button.on{border-color:var(--pc);color:var(--tx);background:rgba(30,41,59,.8)}
+.jump button i{width:7px;height:7px;border-radius:50%;background:var(--pc);flex:none}
+.legend{display:flex;flex-wrap:wrap;gap:10px 14px;font-size:11.5px;color:var(--mut)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--idle);flex:none}
+.dot.proc{background:var(--proc);box-shadow:0 0 8px var(--proc)}
+.dot.wait{background:var(--wait);box-shadow:0 0 8px var(--wait)}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.dot.fail{background:var(--fail)}
+
+/* ---------- timeline ---------- */
+#tlwrap{border-top:1px solid var(--line);padding:9px 20px 12px;background:rgba(6,10,20,.95);z-index:20}
+#phases{display:flex;gap:4px;margin-bottom:6px}
+#phases div{font-size:9.5px;letter-spacing:.14em;color:var(--dim);font-weight:700;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;cursor:pointer;padding-left:2px;border-left:2px solid var(--pc);transition:color .2s}
+#phases div.on{color:var(--tx)}
+#tl{display:flex;gap:4px;height:12px}
+#tl button{flex:1;border-radius:3px;background:rgba(51,65,85,.45);position:relative;overflow:hidden;transition:background .3s}
+#tl button::after{content:"";position:absolute;inset:0;background:var(--pc);opacity:0;transition:opacity .3s}
+#tl button.done::after{opacity:.55}
+#tl button.cur::after{opacity:1;animation:tlpulse 1.6s ease-in-out infinite}
+#tl button:hover{background:rgba(100,116,139,.6)}
+#tl button .tip{display:none}
+@keyframes tlpulse{50%{opacity:.6}}
+#tlprog{height:2px;background:rgba(51,65,85,.4);margin-top:6px;border-radius:2px;overflow:hidden}
+#tlprog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--gl),var(--ci),var(--qy),var(--ok));transition:width .4s}
+
+/* ---------- components ---------- */
+.comp{position:absolute;border-radius:14px;background:var(--panel);border:1px solid var(--line);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:5;cursor:pointer;
+  box-shadow:0 10px 30px -12px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.04);
+  transition:opacity calc(.6s / var(--sp)),filter calc(.6s / var(--sp)),border-color calc(.4s / var(--sp)),box-shadow calc(.4s / var(--sp)),transform calc(.4s / var(--sp))}
+.comp.ghost{opacity:.16;filter:saturate(.2)}
+.comp.ghost *{visibility:visible}
+.comp:hover{border-color:var(--line2)}
+.comp.act{border-color:color-mix(in srgb,var(--c) 70%,transparent);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--c) 40%,transparent),0 0 34px -6px color-mix(in srgb,var(--c) 55%,transparent),0 10px 30px -12px rgba(0,0,0,.6)}
+.comp.sel{outline:1.5px dashed color-mix(in srgb,var(--c) 80%,white);outline-offset:4px}
+.comp.flash{animation:flash calc(.9s / var(--sp)) ease-out}
+@keyframes flash{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 90%,transparent)}100%{box-shadow:0 0 0 18px transparent}}
+.hd{display:flex;align-items:center;gap:9px;padding:10px 12px 8px}
+.hd .ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex:none;
+  background:color-mix(in srgb,var(--c) 16%,transparent);border:1px solid color-mix(in srgb,var(--c) 35%,transparent)}
+.hd .ic svg{width:16px;height:16px}
+.hd .t{min-width:0;flex:1}
+.hd .t b{display:block;font-size:10.5px;letter-spacing:.13em;font-weight:750;color:color-mix(in srgb,var(--c) 75%,white);white-space:nowrap}
+.hd .t span{display:block;font-size:10.5px;color:var(--mut);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st{width:8px;height:8px;border-radius:50%;background:var(--idle);flex:none;transition:.3s}
+[data-s=proc]>.hd .st,.st[data-s=proc]{background:var(--proc);box-shadow:0 0 10px var(--proc);animation:blink 1.1s infinite}
+[data-s=wait]>.hd .st,.st[data-s=wait]{background:var(--wait);box-shadow:0 0 10px var(--wait);animation:blink 1.4s infinite}
+[data-s=ok]>.hd .st,.st[data-s=ok]{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+@keyframes blink{50%{opacity:.35}}
+.bd{padding:0 12px 10px}
+.mono{font-family:var(--mono)}
+.rv{opacity:0;transform:translateY(4px);transition:opacity calc(.45s / var(--sp)),transform calc(.45s / var(--sp))}
+.rv.show{opacity:1;transform:none}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:2px 7px;border-radius:999px;
+  border:1px solid var(--line2);color:var(--mut);white-space:nowrap;transition:.35s}
+.chip.proc{border-color:var(--proc);color:#bfdbfe;background:rgba(59,130,246,.14)}
+.chip.wait{border-color:var(--wait);color:#fde68a;background:rgba(251,191,36,.12)}
+.chip.ok{border-color:var(--ok);color:#bbf7d0;background:rgba(34,197,94,.13)}
+.hash{font-family:var(--mono);color:#fdba74}
+.new{animation:newrow calc(1.6s / var(--sp)) ease-out}
+@keyframes newrow{0%{background:rgba(251,191,36,.35)}100%{background:transparent}}
+
+/* terminal */
+.term{background:rgba(2,6,14,.85);border:1px solid rgba(148,163,184,.12);border-radius:8px;font-family:var(--mono);
+  font-size:9.6px;line-height:1.55;color:#cbd5e1;padding:6px 8px;overflow:hidden;white-space:pre}
+.term .p{color:#34d399}.term .c{color:#64748b}.term .y{color:#fde68a}.term .b{color:#93c5fd}.term .g{color:#86efac}.term .o{color:#fdba74}
+.term .cur::after{content:"▋";color:#94a3b8;animation:blink .9s steps(1) infinite}
+.tbar{display:flex;align-items:center;gap:4px;margin-bottom:5px;font-family:var(--sans);font-size:9.5px;color:var(--dim)}
+.tbar i{width:6px;height:6px;border-radius:50%;background:#334155}
+
+/* file rows */
+.fr{display:flex;align-items:center;gap:7px;font-size:11px;padding:4px 7px;border-radius:7px;background:rgba(30,41,59,.4);margin-top:4px}
+.fr .n{font-family:var(--mono);font-size:10.5px;color:#e2e8f0}
+.fr .d{margin-left:auto;font-size:9.5px;color:var(--dim)}
+.fr svg{width:12px;height:12px;flex:none;opacity:.8}
+
+/* pipeline */
+#pipe{background:linear-gradient(180deg,rgba(24,18,44,.72),rgba(14,18,36,.72));cursor:default}
+.stage{background:rgba(9,13,26,.72);border-radius:12px}
+.stage .num{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:750;
+  border:1.5px solid var(--idle);color:var(--mut);transition:.35s;flex:none}
+.stage[data-s=proc] .num{border-color:var(--proc);color:#dbeafe;background:rgba(59,130,246,.25);box-shadow:0 0 14px rgba(59,130,246,.6)}
+.stage[data-s=ok] .num{border-color:var(--ok);color:#dcfce7;background:rgba(34,197,94,.22)}
+.stage .hd .t b{font-size:12.5px;letter-spacing:.16em}
+.stage[data-s=proc]{border-color:rgba(59,130,246,.55)}
+.stage[data-s=ok]{border-color:rgba(34,197,94,.4)}
+.pipebar{position:absolute;left:0;right:0;bottom:0;height:3px;border-radius:0 0 12px 12px;background:rgba(51,65,85,.4);overflow:hidden}
+.pipebar i{display:block;height:100%;width:0;background:var(--proc);transition:width calc(1.2s / var(--sp)) linear}
+.stage[data-s=ok] .pipebar i{background:var(--ok);width:100%}
+.box{border:1px solid var(--line);border-radius:9px;background:rgba(15,23,42,.6)}
+.mini{font-size:10px;padding:5px 7px;border-radius:7px;border:1px solid var(--line2);background:rgba(30,41,59,.6);color:#cbd5e1;text-align:center;transition:.35s}
+.mini.hot{border-color:var(--c);box-shadow:0 0 14px -2px var(--c);color:#fff}
+.arrow{color:var(--dim);font-size:13px;text-align:center}
+.war{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;border:1px solid rgba(251,191,36,.55);
+  background:linear-gradient(180deg,rgba(251,191,36,.16),rgba(251,191,36,.05));font-family:var(--mono);font-size:10.5px;color:#fde68a}
+.war svg{width:14px;height:14px}
+.layer{height:21px;border-radius:5px;margin-top:3px;font-size:9.5px;display:flex;align-items:center;padding:0 7px;gap:6px;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--lc) 26%,transparent),color-mix(in srgb,var(--lc) 8%,transparent));
+  border:1px solid color-mix(in srgb,var(--lc) 45%,transparent);color:#e2e8f0;white-space:nowrap;overflow:hidden}
+.layer i{width:5px;height:5px;border-radius:50%;background:var(--lc);flex:none}
+.imgstack .layer{transform:translateY(-8px) scaleY(.4);opacity:0;transition:calc(.45s / var(--sp)) cubic-bezier(.3,1.4,.5,1)}
+.imgstack .layer.show{transform:none;opacity:1}
+.step{display:flex;align-items:center;gap:8px;font-size:11px;padding:4px 8px;border-radius:7px;color:var(--mut);transition:.35s}
+.step .dot{width:14px;height:14px;display:grid;place-items:center;font-size:9px;color:#0b1220;font-weight:800}
+.step.proc{color:#dbeafe;background:rgba(59,130,246,.12)}
+.step.proc .dot{background:var(--proc);box-shadow:0 0 8px var(--proc)}
+.step.ok{color:#e2e8f0}
+.step.ok .dot{background:var(--ok)}
+.step.ok .dot::after{content:"✓"}
+.step .mono{margin-left:auto;font-size:9.5px;color:var(--dim)}
+
+/* repo tree */
+.tree{font-family:var(--mono);font-size:10.2px;line-height:1.42;color:#94a3b8;white-space:pre;padding:2px 12px}
+.tree .d{color:#c4b5fd}.tree .f{color:#cbd5e1}.tree .k{color:#fdba74}.tree .hl{background:rgba(252,109,38,.18);border-radius:3px;color:#fed7aa}
+.tree .cm{color:#5eead4}
+.sep-badge{position:absolute;right:10px;top:10px;font-size:9px;letter-spacing:.12em;font-weight:750;padding:3px 7px;border-radius:5px;
+  color:#fed7aa;border:1px dashed rgba(252,109,38,.7);background:rgba(252,109,38,.08)}
+.repo-sep{box-shadow:0 0 0 2px rgba(252,109,38,.0);}
+.comp.emph{outline:2px dashed rgba(252,109,38,.85);outline-offset:6px}
+
+/* argo */
+.ds{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ds .box{padding:7px 8px}
+.ds .box b{font-size:9px;letter-spacing:.14em;color:var(--mut);display:block}
+.ds .box small{font-size:9.5px;color:var(--dim);display:block;margin-top:1px}
+.ds .box .mono{font-size:11.5px;margin-top:5px;display:block;transition:.35s}
+.syncbig{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:9px;height:34px;border-radius:9px;border:1px solid var(--line2);
+  font-size:12px;font-weight:650;letter-spacing:.06em;color:var(--mut);transition:.4s}
+.syncbig.wait{border-color:var(--wait);color:#fde68a;background:rgba(251,191,36,.1)}
+.syncbig.proc{border-color:var(--proc);color:#bfdbfe;background:rgba(59,130,246,.12)}
+.syncbig.ok{border-color:var(--ok);color:#bbf7d0;background:rgba(34,197,94,.12)}
+.spin{width:13px;height:13px;border-radius:50%;border:2px solid rgba(191,219,254,.3);border-top-color:#bfdbfe;animation:spin .8s linear infinite;display:none}
+.syncbig.proc .spin{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.radar{position:absolute;right:14px;top:12px;width:18px;height:18px;border-radius:50%;border:1px solid rgba(251,113,133,.5)}
+.radar.on::after{content:"";position:absolute;inset:-1px;border-radius:50%;border:1px solid var(--ar);animation:ping calc(1.4s / var(--sp)) ease-out infinite}
+@keyframes ping{0%{transform:scale(1);opacity:1}100%{transform:scale(2.6);opacity:0}}
+
+/* helm / resources */
+.tpl{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.tpl .mini{text-align:left;font-family:var(--mono);font-size:9.3px;padding:4px 6px}
+.res{display:flex;align-items:center;gap:6px;font-size:10px;padding:4px 7px;border-radius:6px;margin-top:3px;
+  background:rgba(99,102,241,.1);border:1px solid rgba(129,140,248,.3)}
+.res b{font-size:8.8px;letter-spacing:.06em;color:#a5b4fc;width:66px;flex:none}
+.res span{font-family:var(--mono);color:#e2e8f0;font-size:9.6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gear{display:flex;align-items:center;justify-content:center;gap:7px;margin:7px 0;font-family:var(--mono);font-size:10px;color:#c7d2fe;
+  border:1px dashed rgba(129,140,248,.45);border-radius:7px;padding:5px}
+.gear svg{width:13px;height:13px}
+.gear.run svg{animation:spin 1.6s linear infinite}
+
+/* openshift */
+#ocp{background:linear-gradient(180deg,rgba(40,14,20,.5),rgba(14,18,34,.72));cursor:default}
+.ns{position:absolute;border:1px dashed rgba(255,107,107,.35);border-radius:12px;background:rgba(255,107,107,.025)}
+.ns>span{position:absolute;left:12px;top:-9px;padding:0 7px;font-size:9.5px;letter-spacing:.12em;color:#fca5a5;background:#0e1322;border-radius:4px}
+.k8{border-radius:10px;background:rgba(10,15,28,.85)}
+.k8 .hd{padding:7px 9px 5px;gap:7px}
+.k8 .hd .ic{width:20px;height:20px;border-radius:6px}
+.k8 .hd .ic svg{width:12px;height:12px}
+.k8 .hd .t b{font-size:9.5px;letter-spacing:.1em}
+.k8 .hd .t span{font-family:var(--mono);font-size:9.3px;color:#cbd5e1}
+.pod{border-radius:12px;background:rgba(10,18,36,.9)}
+.pod .hd .t span{font-family:var(--mono);color:#cbd5e1}
+.pod .img{font-family:var(--mono);font-size:9.3px;color:#93c5fd;padding:3px 7px;border-radius:6px;border:1px solid rgba(79,148,255,.35);background:rgba(79,148,255,.08);margin:0 10px}
+.pod .rt{margin:5px 10px 0;display:flex;align-items:center;gap:6px;font-size:10px;color:#cbd5e1;padding:4px 7px;border-radius:6px;
+  background:linear-gradient(90deg,rgba(79,148,255,.22),rgba(79,148,255,.04));border:1px solid rgba(79,148,255,.35)}
+.pod .rt .bar{flex:1;height:4px;border-radius:3px;background:rgba(51,65,85,.6);overflow:hidden}
+.pod .rt .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--lb),var(--ok));transition:width calc(3s / var(--sp)) linear}
+.mounts{display:flex;gap:3px;margin:6px 10px 0;flex-wrap:wrap}
+.mounts span{font-size:8.6px;padding:2px 5px;border-radius:4px;border:1px dashed rgba(148,163,184,.3);color:var(--dim);transition:.4s}
+.mounts span.m{border-style:solid;border-color:rgba(45,212,191,.6);color:#99f6e4;background:rgba(45,212,191,.1)}
+.ports{display:flex;gap:5px;margin:6px 10px 0}
+.ports span{font-family:var(--mono);font-size:8.8px;padding:2px 6px;border-radius:4px;color:var(--dim);border:1px solid var(--line);transition:.4s}
+.ports span.up{color:#bbf7d0;border-color:rgba(34,197,94,.55);background:rgba(34,197,94,.1)}
+.pstat{font-size:9px;padding:2px 7px;border-radius:999px;border:1px solid var(--line2);color:var(--mut);transition:.35s;white-space:nowrap}
+.pstat.proc{border-color:var(--proc);color:#bfdbfe}.pstat.wait{border-color:var(--wait);color:#fde68a}.pstat.ok{border-color:var(--ok);color:#bbf7d0;background:rgba(34,197,94,.12)}
+#appst{display:flex;align-items:center;justify-content:center;gap:10px;font-size:12.5px;font-weight:600;letter-spacing:.03em;color:var(--mut)}
+#appst.ok{border-color:rgba(34,197,94,.6);color:#bbf7d0;background:linear-gradient(90deg,rgba(34,197,94,.05),rgba(34,197,94,.16),rgba(34,197,94,.05))}
+.edge{position:absolute;font-size:9px;letter-spacing:.12em;color:#fca5a5;opacity:.8}
+
+/* env */
+.lane{margin:6px 10px 0;padding:8px 9px;border-radius:9px;border:1px solid var(--line);background:rgba(15,23,42,.55);transition:.4s}
+.lane .r1{display:flex;align-items:center;gap:7px}
+.lane .r1 b{font-size:11px;letter-spacing:.12em}
+.lane .r1 .chip{margin-left:auto}
+.lane .r2{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:9.5px;color:var(--mut)}
+.lane .gate{font-size:9px;padding:2px 6px;border-radius:5px;border:1px dashed rgba(251,191,36,.5);color:#fde68a}
+.lane.ok{border-color:rgba(34,197,94,.45)}
+.lane.wait{border-color:rgba(251,191,36,.55);box-shadow:0 0 18px -6px rgba(251,191,36,.6)}
+
+/* wires & packets */
+.w{fill:none;stroke:var(--wc);stroke-width:1.6;opacity:0;transition:opacity calc(.6s / var(--sp))}
+.w.on{opacity:.42}
+.w.hot{opacity:.95;stroke-width:2}
+.wf{fill:none;stroke:var(--wc);stroke-width:1.6;stroke-dasharray:3 9;opacity:0;animation:dash 1s linear infinite}
+.wf.on{opacity:.9}
+@keyframes dash{to{stroke-dashoffset:-24}}
+.wlbl{font-size:9.5px;fill:var(--mut);font-family:var(--sans);opacity:0;transition:opacity .5s;letter-spacing:.04em}
+.wlbl.on{opacity:1}
+.pkt text{font-family:var(--mono);font-size:10px;fill:#fff;font-weight:600}
+.pkt rect{fill:rgba(8,12,24,.92);stroke-width:1}
+
+/* callouts */
+.note{position:absolute;z-index:70;max-width:250px;font-size:11px;line-height:1.45;color:#e2e8f0;padding:8px 10px;border-radius:9px;
+  background:rgba(15,23,42,.95);border:1px solid color-mix(in srgb,var(--c,#38bdf8) 60%,transparent);
+  box-shadow:0 10px 30px -8px rgba(0,0,0,.8),0 0 20px -8px var(--c,#38bdf8);opacity:0;transform:translateY(6px) scale(.97);
+  transition:calc(.4s / var(--sp));pointer-events:none}
+.note.show{opacity:1;transform:none}
+.note b{display:block;font-size:9.5px;letter-spacing:.12em;color:color-mix(in srgb,var(--c,#38bdf8) 80%,white);margin-bottom:3px}
+.ptag{position:absolute;z-index:4;font-size:9.5px;letter-spacing:.18em;font-weight:750;color:var(--dim);display:flex;gap:6px;align-items:center;transition:color .4s}
+.ptag i{font-style:normal;color:var(--pc)}
+.ptag.on{color:#cbd5e1}
+
+/* lens (zoom detail) */
+#lensbg{position:absolute;inset:0;z-index:80;background:rgba(3,6,14,.55);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity calc(.5s / var(--sp))}
+#lensbg.show{opacity:1}
+#lens{position:absolute;z-index:81;left:50%;top:50%;width:min(940px,calc(100% - 48px));max-height:calc(100% - 40px);overflow:hidden;
+  border-radius:18px;background:linear-gradient(180deg,rgba(17,25,45,.97),rgba(9,14,28,.97));border:1px solid var(--line2);
+  box-shadow:0 40px 90px -20px rgba(0,0,0,.85),0 0 60px -20px var(--c,#38bdf8);opacity:0;pointer-events:none;
+  transform:translate(-50%,-50%) scale(.2);transition:transform calc(.7s / var(--sp)) cubic-bezier(.3,1.1,.4,1),opacity calc(.5s / var(--sp))}
+#lens.show{opacity:1;transform:translate(-50%,-50%) scale(1);pointer-events:auto}
+#lens .lh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+#lens .lh b{font-size:11px;letter-spacing:.16em;color:color-mix(in srgb,var(--c,#38bdf8) 75%,white)}
+#lens .lh span{font-size:12px;color:var(--mut)}
+#lens .lh .zoom{margin-left:auto;font-size:10px;color:var(--dim);font-family:var(--mono)}
+#lensbody{position:relative;padding:16px 18px 18px}
+
+/* lens: liberty config */
+.cfgwrap{position:relative;height:370px}
+.cfgmono{position:absolute;left:50%;top:6px;transform:translateX(-50%);width:420px;height:150px;border-radius:12px;
+  border:1px solid rgba(79,148,255,.5);background:rgba(79,148,255,.08);transition:calc(.7s / var(--sp))}
+.cfgmono .mh{font-family:var(--mono);font-size:11px;color:#93c5fd;padding:8px 12px;border-bottom:1px solid rgba(79,148,255,.25)}
+.cfgmono.gone{opacity:.0;transform:translateX(-50%) scale(.9)}
+.band{position:absolute;left:0;width:calc(50% - 8px);top:176px;height:190px;border-radius:12px;padding:10px 12px;opacity:0;transition:opacity calc(.6s / var(--sp))}
+.band.show{opacity:1}
+.band b{font-size:10px;letter-spacing:.14em;display:block}
+.band small{font-size:11px;color:var(--mut);display:block;margin-top:3px;line-height:1.4}
+.band.base{border:1px solid rgba(79,148,255,.45);background:rgba(79,148,255,.06)}
+.band.base b{color:#93c5fd}
+.band.dep{left:auto;right:0;border:1px solid rgba(252,109,38,.45);background:rgba(252,109,38,.05)}
+.band.dep b{color:#fdba74}
+.tile{position:absolute;width:128px;height:44px;border-radius:9px;display:flex;flex-direction:column;justify-content:center;padding:0 10px;
+  background:rgba(15,23,42,.95);border:1px solid var(--tc);font-size:11.5px;font-weight:600;color:#fff;
+  transition:left calc(.9s / var(--sp)) cubic-bezier(.5,0,.2,1),top calc(.9s / var(--sp)) cubic-bezier(.5,0,.2,1),opacity calc(.4s / var(--sp));box-shadow:0 0 16px -6px var(--tc)}
+.tile small{font-family:var(--mono);font-size:9px;color:var(--mut);font-weight:400}
+.purpose{margin-top:10px;text-align:center;font-size:13px;color:#cbd5e1;opacity:0;transition:opacity .6s}
+.purpose.show{opacity:1}
+
+/* lens: diff */
+.dgrid{display:grid;grid-template-columns:220px 1fr;gap:16px}
+.diff{border-radius:10px;border:1px solid var(--line2);background:rgba(2,6,14,.85);overflow:hidden}
+.diff .fh{font-family:var(--mono);font-size:11px;color:var(--mut);padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:8px}
+.diff .fh b{color:#fdba74;font-weight:500}
+.dl{font-family:var(--mono);font-size:13px;line-height:1.9;padding:0 12px;white-space:pre;color:#cbd5e1;display:flex;transition:.4s}
+.dl .ln{width:28px;color:#475569;flex:none}
+.dl .sg{width:16px;flex:none;color:#475569}
+.dl.del{background:rgba(148,163,184,.1);color:#94a3b8}
+.dl.del .tx{text-decoration:line-through;text-decoration-color:#94a3b8}
+.dl.del .sg{color:#94a3b8}
+.dl.add{background:rgba(34,197,94,.13);color:#bbf7d0}
+.dl.add .sg{color:#4ade80}
+.dl .k{color:#93c5fd}.dl .v{color:#fde68a}
+.big-term{font-size:11.5px;line-height:1.7;margin-top:12px;min-height:92px}
+
+/* lens: liberty startup */
+.lsgrid{display:grid;grid-template-columns:300px 1fr;gap:16px}
+.podz{border-radius:14px;border:1px solid rgba(79,148,255,.45);background:rgba(10,18,36,.9);padding:12px}
+.podz .ph{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:#cbd5e1}
+.fs{font-family:var(--mono);font-size:10.5px;line-height:1.65;margin-top:10px;white-space:pre;color:#94a3b8}
+.fs .m{color:#5eead4}.fs .a{color:#fde68a}.fs .r{color:#93c5fd}
+.fs span{transition:.4s}
+.fs .dimx{opacity:.3}
+.health{display:flex;gap:6px;margin-top:12px}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
+.checks .step{font-size:11.5px;padding:5px 8px}
+.logs{margin-top:10px;height:118px;font-size:10px;line-height:1.6}
+.started{margin-top:10px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:10px;font-weight:650;
+  border:1px solid var(--line2);color:var(--mut);transition:.5s}
+.started.ok{border-color:var(--ok);color:#bbf7d0;background:rgba(34,197,94,.14);box-shadow:0 0 30px -8px rgba(34,197,94,.7)}
+
+/* e2e bubble & final banner */
+.bubble{position:absolute;z-index:75;transform:translate(-50%,calc(-100% - 16px));background:rgba(8,12,24,.96);border:1px solid rgba(255,255,255,.3);
+  border-radius:9px;padding:6px 10px;font-size:11px;white-space:nowrap;color:#fff;box-shadow:0 0 24px -6px rgba(125,211,252,.8);pointer-events:none;
+  opacity:0;transition:opacity calc(.25s / var(--sp))}
+.bubble.show{opacity:1}
+.bubble b{color:#7dd3fc;font-size:9.5px;letter-spacing:.12em;margin-right:6px}
+#banner{position:absolute;left:50%;bottom:14px;transform:translateX(-50%) translateY(10px);z-index:40;opacity:0;transition:.8s;
+  padding:10px 20px;border-radius:999px;font-size:14px;font-weight:600;letter-spacing:.01em;white-space:nowrap;
+  background:rgba(8,14,28,.9);border:1px solid rgba(252,109,38,.5);box-shadow:0 0 40px -10px rgba(252,109,38,.6);color:#fed7aa}
+#banner.show{opacity:1;transform:translateX(-50%)}
+#hint{position:absolute;right:14px;bottom:12px;z-index:30;font-size:10.5px;color:var(--dim)}
+
+/* presentation mode */
+#cap{display:none}
+body.pres #side{display:none}
+body.pres #main{grid-template-columns:1fr}
+body.pres #top .hide-p{display:none}
+body.pres #top{padding:8px 18px}
+body.pres #cap{display:block;position:absolute;left:22px;bottom:18px;z-index:85;max-width:560px;padding:16px 20px;border-radius:16px;
+  background:rgba(8,13,26,.92);border:1px solid var(--line2);backdrop-filter:blur(10px);box-shadow:0 20px 50px -10px rgba(0,0,0,.8)}
+#cap .pc{font-size:11px;letter-spacing:.16em;font-weight:750}
+#cap h2{font-size:24px;margin-top:4px;letter-spacing:-.01em}
+#cap p{font-size:15.5px;line-height:1.5;color:#cbd5e1;margin-top:8px}
+#cap p.w{color:#9fb0c7;font-size:14px}
+#cap p b{font-size:10.5px;letter-spacing:.14em;color:var(--mut);margin-right:6px}
+body.pres #banner{bottom:auto;top:14px}
+body.pres #hint{display:none}
+@media (max-width:1100px){#main{grid-template-columns:1fr 300px}.hide-s{display:none}}
+</style>
+</head>
+<body>
+<header id="top">
+  <div id="brand">
+    <div class="logo"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#e2e8f0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.2"/><circle cx="5" cy="18" r="2.2"/><path d="M5 8.2v7.6"/><path d="M7.2 6H14a3 3 0 0 1 3 3v2"/><path d="M13 14l4 3 4-3M17 11v6"/></svg></div>
+    <div style="min-width:0">
+      <h1>From Git Push to OpenShift: Application Deployment Flow</h1>
+      <p>GitLab CI/CD + Nexus + Quay + Helm + Argo CD + WebSphere Liberty</p>
+    </div>
+  </div>
+  <div id="bar">
+  <div class="ctrls">
+    <button class="btn pri" id="bPlay" title="Play / Pause (Space)" aria-label="Play or pause">▶<span class="bt"> Play</span></button>
+    <button class="btn hide-p hide-m" id="bPause" title="Pause" aria-label="Pause">⏸<span class="bt"> Pause</span></button>
+    <button class="btn" id="bRestart" title="Restart (R)" aria-label="Restart">↻<span class="bt"> Restart</span></button>
+    <button class="btn" id="bPrev" title="Previous (←)" aria-label="Previous step">◀<span class="bt"> Previous</span></button>
+    <button class="btn" id="bNext" title="Next (→)" aria-label="Next step"><span class="bt">Next </span>▶</button>
+  </div>
+  <div class="ctrls hide-p" id="spdwrap">
+    <span class="lbl hide-m">Speed</span>
+    <div class="seg" id="speed"><button data-v=".5">0.5x</button><button data-v="1" class="on">1x</button><button data-v="1.5">1.5x</button><button data-v="2">2x</button></div>
+  </div>
+  <button class="btn hide-p" id="bFollow" title="Camera follows the active component" aria-label="Follow camera">⌖<span class="bt"> Follow</span></button>
+  <button class="btn" id="bPres" title="Presentation mode (P)" aria-label="Presentation mode">⛶<span class="bt"> Presentation</span></button>
+  <div id="stepno">Step 1 / 29</div>
+  </div>
+</header>
+
+<div id="main">
+  <div id="vp">
+    <div id="stage"></div>
+    <div id="lensbg"></div>
+    <div id="lens"><div class="lh"><b id="lensT"></b><span id="lensS"></span><span class="zoom" id="lensZ"></span></div><div id="lensbody"></div></div>
+    <div id="banner">Git is the source of truth for application source and deployment configuration.</div>
+    <div id="cap"><div class="pc" id="capP"></div><h2 id="capT"></h2><p id="capW"></p><p class="w" id="capY"></p></div>
+    <div id="hint">Click any component to inspect · Scroll / pinch to zoom · drag to pan · Space play/pause · ← → step · P presentation</div>
+    <div id="zoomc"><button id="zIn" aria-label="Zoom in">+</button><button id="zOut" aria-label="Zoom out">−</button><button id="zFit" aria-label="Reset view" title="Reset view">⤢</button></div>
+  </div>
+
+  <aside id="side">
+    <div class="sec">
+      <h4>Current Step</h4>
+      <div id="phasechip">SOURCE</div>
+      <div id="stitle">—</div>
+      <div id="sstate">STATE</div>
+      <div class="qa"><b>WHAT IS HAPPENING</b><p id="swhat"></p></div>
+      <div class="qa why"><b>WHY</b><p id="swhy"></p></div>
+    </div>
+    <div class="sec" id="insp">
+      <h4>Inspector</h4>
+      <div class="empty">Click any component on the canvas — Quay, Argo CD, Helm, a Liberty pod, the IIOP Service — to see what it does in this platform.</div>
+    </div>
+    <div class="sec">
+      <h4>Jump to stage</h4>
+      <div class="jump" id="jump"></div>
+    </div>
+    <div class="sec">
+      <h4>Status language</h4>
+      <div class="legend">
+        <span><i class="dot"></i>Inactive</span><span><i class="dot proc"></i>Processing</span>
+        <span><i class="dot wait"></i>Waiting / manual approval</span><span><i class="dot ok"></i>Successful / healthy</span>
+        <span><i class="dot fail"></i>Failure (not in this run)</span>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<footer id="tlwrap">
+  <div id="phases"></div>
+  <div id="tl"></div>
+  <div id="tlprog"><i></i></div>
+</footer>
+<script>
+"use strict";
+/* =====================================================================
+   LAYOUT — logical canvas 1600 x 940 (scaled to fit the viewport)
+   ===================================================================== */
+const W = 1600, H = 940;
+const COMMIT = "a1b2c3d4", PREV = "previous-tag", IMG = "inventory-service";
+const L = {
+  dev:{x:20,y:60,w:210,h:252},     src:{x:250,y:60,w:220,h:240},
+  nexus:{x:250,y:320,w:220,h:125}, pipe:{x:490,y:40,w:1090,h:335},
+  build:{x:502,y:92,w:350,h:272},  cont:{x:862,y:92,w:350,h:272}, dep:{x:1222,y:92,w:346,h:272},
+  quay:{x:962,y:400,w:240,h:170},  drepo:{x:1225,y:400,w:355,h:270}, argo:{x:1225,y:690,w:355,h:230},
+  helm:{x:962,y:584,w:240,h:336},  ocp:{x:250,y:470,w:690,h:450},
+  client:{x:20,y:470,w:210,h:120}, env:{x:20,y:610,w:210,h:310},
+  route:{x:270,y:540,w:124,h:72},  http:{x:408,y:540,w:124,h:72},
+  ejb:{x:270,y:752,w:124,h:72},    iiop:{x:408,y:752,w:124,h:72},
+  pod1:{x:548,y:530,w:184,h:152},  pod2:{x:548,y:694,w:184,h:152},
+  deploy:{x:752,y:530,w:168,h:54}, rs:{x:752,y:592,w:168,h:54},
+  cm:{x:752,y:666,w:168,h:54},     secret:{x:752,y:728,w:168,h:54},
+  appst:{x:272,y:858,w:648,h:44}
+};
+const COL = {dev:"#94a3b8",src:"var(--gl)",nexus:"var(--nx)",pipe:"var(--ci)",build:"var(--ci)",cont:"var(--ci)",dep:"var(--ci)",
+  quay:"var(--qy)",drepo:"var(--gl)",argo:"var(--ar)",helm:"var(--hm)",ocp:"var(--os)",client:"#e2e8f0",env:"var(--ar)",
+  route:"var(--os)",http:"var(--k8)",ejb:"#c4b5fd",iiop:"#c4b5fd",pod1:"var(--lb)",pod2:"var(--lb)",deploy:"var(--k8)",rs:"var(--k8)",
+  cm:"#5eead4",secret:"#5eead4",appst:"var(--ok)"};
+
+/* =====================================================================
+   ICONS (inline SVG, no external assets)
+   ===================================================================== */
+const S = (p, f) => `<svg viewBox="0 0 24 24" fill="${f?'currentColor':'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const IC = {
+  gitlab: `<svg viewBox="0 0 24 24"><path d="M12 21.2 2.6 14.4a.9.9 0 0 1-.3-1l1-3.2L5.6 3.4a.4.4 0 0 1 .8 0L8.6 10h6.8l2.2-6.6a.4.4 0 0 1 .8 0l2.3 6.8 1 3.2a.9.9 0 0 1-.3 1z" fill="#fc6d26"/><path d="M12 21.2 8.6 10h6.8z" fill="#e24329"/><path d="M12 21.2 2.3 13.4l1-3.2L8.6 10z" fill="#fca326"/><path d="M12 21.2l9.7-7.8-1-3.2L15.4 10z" fill="#fca326"/></svg>`,
+  dev: S('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 9l2 1.5L7 12M11 12h4"/>'),
+  pipe: S('<circle cx="5" cy="12" r="2.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="M7.5 12h2M14.5 12h2"/>'),
+  nexus: S('<path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z"/><path d="M8.5 15.5v-7l7 7v-7"/>'),
+  quay: S('<path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z"/><path d="M12 12 20.5 7M12 12v9.5M12 12 3.5 7"/>'),
+  argo: S('<circle cx="12" cy="9.5" r="6"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="9" r="1" fill="currentColor"/><path d="M8 15l-2.5 5M12 15.5V21M16 15l2.5 5"/>'),
+  helm: S('<circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5M5.3 5.3l3.5 3.5M15.2 15.2l3.5 3.5M5.3 18.7l3.5-3.5M15.2 8.8l3.5-3.5"/>'),
+  ocp: S('<path d="M19.5 8.5A8.5 8.5 0 1 0 20 14"/><path d="M3 10.5 21 5M3.5 16l17.5-4.5"/>'),
+  liberty: S('<path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z"/><path d="M9.5 8v8h5"/>'),
+  deploy: S('<rect x="4" y="4" width="16" height="5" rx="1.5"/><rect x="4" y="11" width="7" height="9" rx="1.5"/><rect x="13" y="11" width="7" height="9" rx="1.5"/>'),
+  rs: S('<rect x="3" y="7" width="8" height="10" rx="1.5"/><rect x="13" y="7" width="8" height="10" rx="1.5"/>'),
+  svc: S('<circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="1.8"/><circle cx="4" cy="18" r="1.8"/><circle cx="20" cy="12" r="1.8"/><path d="M5.7 7l4 3.3M5.7 17l4-3.3M15 12h3.2"/>'),
+  route: S('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.8 3 2.8 15 0 18M12 3c-2.8 3-2.8 15 0 18"/>'),
+  cm: S('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>'),
+  secret: S('<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2"/>'),
+  ejb: S('<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>'),
+  client: S('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9 6.5h.01"/>'),
+  env: S('<path d="M12 3 21 8l-9 5-9-5z"/><path d="M3 12.5l9 5 9-5M3 16.5l9 5 9-5"/>'),
+  file: S('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>'),
+  folder: S('<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>'),
+  branch: S('<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9a6 6 0 0 1-6 6H6"/>'),
+  pkg: S('<path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z"/><path d="M3.5 7 12 11.5 20.5 7M12 11.5v10"/>'),
+  war: S('<path d="M4 7h16v13H4z"/><path d="M4 7l2-4h12l2 4M10 11h4"/>'),
+  gear: S('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>'),
+  ci: S('<path d="M4 6h10M4 12h16M4 18h7"/><circle cx="18" cy="6" r="2"/><circle cx="15" cy="18" r="2"/>')
+};
+
+/* =====================================================================
+   INSPECTOR CONTENT
+   ===================================================================== */
+const INFO = {
+  dev:{t:"Developer workstation",d:"Where application source code is written. The developer commits and pushes to the GitLab source repository — that single push starts everything else.",l:["git add / commit / push","Commit a1b2c3d4 becomes the traceable identity of the release"]},
+  src:{t:"GitLab · Source Code Repository",d:"Repository 1. Holds the application source, its build configuration and the .gitlab-ci.yml pipeline definition. A push to it triggers the GitLab CI/CD pipeline.",l:["src/ — application code","build configuration (Ant build.xml here; varies per project)",".gitlab-ci.yml — BUILD, CONTAINERIZE, DEPLOY stages"]},
+  nexus:{t:"Nexus Repository",d:"The organization's Nexus registry/repository. During BUILD the GitLab runner obtains Apache Ant from Nexus, so build tooling comes from a governed internal source.",l:["Provides build tooling (Ant) to the runner","Not shown as the store for the final application image"]},
+  pipe:{t:"GitLab CI/CD Pipeline",d:"Defined in .gitlab-ci.yml and executed by GitLab Runners. Three stages: BUILD → CONTAINERIZE → DEPLOY. It never runs the application itself.",l:["Triggered by the source push","Produces an image, pushes it to Quay, then updates Git"]},
+  build:{t:"Stage 1 · BUILD",d:"The runner prepares the build environment, obtains Ant from Nexus and compiles/packages the source into the application artifact (application.war).",l:["Input: source + build scripts + dependencies","Output: application.war"]},
+  cont:{t:"Stage 2 · CONTAINERIZE",d:"Starts FROM the organization's Liberty base image (Liberty + JDBC + Oracle drivers + LDAP trust + common config) and copies the application artifact into it, producing an application-specific image.",l:["Base image is reused by every application","Image tagged with the Git commit ID"]},
+  dep:{t:"Stage 3 · DEPLOY",d:"Clones the separate deployment repository, writes the new image tag into the Helm values, commits and pushes. GitLab does not deploy to OpenShift directly — Argo CD does.",l:["Clone → read → update tag → commit → push"]},
+  quay:{t:"Quay Container Registry",d:"Container registry storing the application-specific image tagged with the Git commit ID. OpenShift pulls the image from here. Quay stores images — it does not build them.",l:["quay.example.com/org/inventory-service:a1b2c3d4"]},
+  drepo:{t:"GitLab · Deployment Repository",d:"Repository 2, deliberately separate from source. Holds Helm charts, values, OpenShift templates and application/environment configuration. Argo CD watches it.",l:["Structure shown is conceptual","A commit here changes the desired state of the cluster"]},
+  argo:{t:"Argo CD",d:"Continuously watches the deployment repository and reconciles the desired state with OpenShift. When Git changes, the application becomes Out of Sync until it is synchronized.",l:["TEST: automatic sync","PROD / EXTERNAL: manual sync after approval","Argo CD never builds images"]},
+  helm:{t:"Helm",d:"Uses deployment values and templates to generate OpenShift/Kubernetes resources. Invoked as part of Argo CD's sync — Helm renders manifests, it does not build the application.",l:["values.yaml + templates → Deployment, ConfigMap, Secret, Services, Route"]},
+  ocp:{t:"Red Hat OpenShift",d:"The container platform that runs the Liberty pods. Resources live in a namespace/project and are created or updated by Argo CD from the rendered Helm output.",l:["Pulls the image from Quay","Mounts ConfigMaps and Secrets into pods"]},
+  client:{t:"External client",d:"A browser or web-service consumer outside the cluster. It can only reach the application through the OpenShift Route (HTTP).",l:[]},
+  env:{t:"Environments",d:"The same Git-driven flow targets three environments. TEST syncs automatically; PROD and EXTERNAL require a manual approval before Argo CD syncs. They are independent, not a forced chain.",l:["TEST — Automatic","PROD — Manual","EXTERNAL — Manual"]},
+  route:{t:"OpenShift Route",d:"The externally exposed entry point. Maps the public hostname to the HTTP Service. IIOP traffic never passes through the Route.",l:["inventory-test.apps.example.com → inventory-http"]},
+  http:{t:"HTTP Service",d:"Cluster service that load-balances web / web-service traffic to the Liberty pods on the HTTP port. Fronted by the Route.",l:["inventory-http : 9080"]},
+  iiop:{t:"IIOP Service",d:"Internal service endpoint used for EJB communication. In-cluster callers address the Liberty pods by this service name.",l:["inventory-iiop : 2809","Not exposed through the Route"]},
+  ejb:{t:"Internal EJB client",d:"Another application inside the platform calling remote EJBs over IIOP, using the IIOP service name as the address.",l:["corbaname::inventory-iiop:2809"]},
+  pod1:{t:"WebSphere Liberty pod",d:"Enterprise Java runtime hosting the deployed application. The image supplies Liberty + the WAR; mounted deployment configuration supplies LDAP, JMS, datasources, URLs and service settings.",l:["HTTP 9080 · IIOP 2809","Health checks: pending → running → healthy"]},
+  deploy:{t:"Deployment",d:"Declares the desired pod template: image inventory-service:a1b2c3d4, replicas, volumes for ConfigMaps/Secrets, probes. Changing the image tag rolls out a new ReplicaSet.",l:[]},
+  rs:{t:"ReplicaSet",d:"Created by the Deployment for the new pod template; keeps the desired number of Liberty pods running.",l:[]},
+  cm:{t:"ConfigMap",d:"Application/environment-specific, non-secret Liberty configuration (e.g. JMS, URLs, service config, datasource definitions) mounted into the pod.",l:[]},
+  secret:{t:"Secret",d:"Sensitive values (LDAP bind credentials, datasource passwords) supplied by the deployment layer and mounted into the pod — not baked into the image.",l:[]},
+  appst:{t:"Application status",d:"Overall availability of inventory-service in the TEST namespace once pods are Ready and services have endpoints.",l:[]}
+};
+INFO.pod2 = INFO.pod1;
+
+/* =====================================================================
+   STAGE MARKUP
+   ===================================================================== */
+function box(id, cls, icon, title, sub, body, extra){
+  const r = L[id];
+  return `<div class="comp ghost ${cls||''}" id="${id}" data-k="${id}" style="--c:${COL[id]};left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px">
+    ${extra||''}<div class="hd"><div class="ic" style="color:${COL[id]}">${IC[icon]}</div><div class="t"><b>${title}</b><span>${sub}</span></div><i class="st"></i></div>${body||''}</div>`;
+}
+const fr = (ic, n, d, id) => `<div class="fr" ${id?`id="${id}"`:''}>${IC[ic]}<span class="n">${n}</span><span class="d">${d}</span></div>`;
+const layer = (id, c, t, show) => `<div class="layer ${show?'show':''}" id="${id}" style="--lc:${c}"><i></i>${t}</div>`;
+const dstep = (id, t, m) => `<div class="step" id="${id}"><i class="dot"></i>${t}<span class="mono">${m}</span></div>`;
+const k8 = (id, icon, title, sub, body) => box(id, 'k8', icon, title, sub, body ? `<div style="padding:0 9px;font-size:9.3px;color:var(--mut)">${body}</div>` : '');
+
+function podHTML(n, name){
+  return box('pod'+n, 'pod', 'liberty', 'LIBERTY POD', name,
+   `<span class="pstat" id="p${n}s" style="position:absolute;right:8px;top:9px">—</span><div class="img rv" id="p${n}img">${IMG}:${COMMIT}</div>
+    <div class="rt">WebSphere Liberty<span class="bar"><i id="p${n}bar"></i></span></div>
+    <div class="mounts"><span id="p${n}m1">LDAP</span><span id="p${n}m2">JMS</span><span id="p${n}m3">DS</span><span id="p${n}m4">URLs</span><span id="p${n}m5">SVC</span></div>
+    <div class="ports"><span id="p${n}h">9080 http</span><span id="p${n}i">2809 iiop</span></div>`);
+}
+
+function stageHTML(){
+  const B = [];
+  B.push(`<svg class="layer" id="wires"></svg>`);
+  B.push(`<div class="ptag" id="pt1" style="left:22px;top:38px;--pc:var(--gl)"><i>01</i>SOURCE</div>`);
+  B.push(`<div class="ptag" id="pt2" style="left:492px;top:18px;--pc:var(--ci)"><i>02–04</i>GITLAB CI/CD · BUILD → CONTAINERIZE → DEPLOY</div>`);
+  B.push(`<div class="ptag" id="pt3" style="left:964px;top:382px;--pc:var(--qy)"><i>03</i>REGISTRY</div>`);
+  B.push(`<div class="ptag" id="pt4" style="left:1227px;top:382px;--pc:var(--ar)"><i>04</i>GITOPS DEPLOYMENT</div>`);
+  B.push(`<div class="ptag" id="pt5" style="left:252px;top:452px;--pc:var(--os)"><i>05</i>OPENSHIFT&nbsp;&nbsp;<i>06</i>RUNTIME&nbsp;&nbsp;<i>07</i>APPLICATION TRAFFIC</div>`);
+
+  B.push(box('dev','', 'dev','DEVELOPER','Application Source Code',
+   `<div class="bd"><div class="box mono" style="padding:5px 8px;font-size:9.2px;line-height:1.5;color:#94a3b8">
+      <div style="color:#64748b;margin-bottom:2px">InventoryResource.java</div>
+      <div><span style="color:#c084fc">@POST</span> <span style="color:#93c5fd">@Path</span>(<span style="color:#86efac">"/reserve"</span>)</div>
+      <div><span style="color:#c084fc">public</span> Response <span style="color:#fde68a">reserve</span>(Stock s) {</div></div>
+    <div class="term" id="devterm" style="height:86px;margin-top:6px"></div>
+    <div class="rv" id="devcommit" style="margin-top:6px"><span class="chip ok">● Commit <span class="hash">${COMMIT}</span></span></div></div>`));
+
+  B.push(box('src','', 'gitlab','GITLAB','Source Code Repository · org/inventory-service',
+   `<div class="bd">${fr('folder','src/','Application Source')}${fr('file','build.xml','Build Configuration')}${fr('ci','.gitlab-ci.yml','Pipeline Definition')}
+    <div class="fr" id="srcBranch" style="margin-top:8px">${IC.branch}<span class="n">main</span><span class="hash" id="srcHead" style="font-size:10.5px">9f8e7d6c</span><span class="d" id="srcHeadT">2 days ago</span></div>
+    <div class="rv" id="srcPipe" style="margin-top:7px;display:flex;align-items:center;gap:6px;font-size:10.5px;color:#e9d5ff"><span style="width:14px;height:14px;color:var(--ci)">${IC.pipe}</span>Pipeline #48213<span class="chip proc" style="margin-left:auto">Pipeline Triggered</span></div></div>`,
+   `<span class="sep-badge" style="top:-9px;right:10px;background:#0b1120">REPO 1 · SOURCE</span>`));
+
+  B.push(box('nexus','', 'nexus','NEXUS REPOSITORY','Organization registry / repository',
+   `<div class="bd"><div class="fr" id="nxAnt">${IC.pkg}<span class="n">apache-ant</span><span class="d">1.10.x · build tool</span></div>
+    ${fr('folder','build-tools/','governed repository')}</div>`));
+
+  B.push(box('pipe','', 'pipe','GITLAB CI/CD PIPELINE','Waiting for a commit…','') .replace('<span>Waiting','<span id="pipeSub">Waiting'));
+
+  B.push(box('build','stage', 'gear','BUILD','Application Artifact Build',
+   `<div class="bd"><div class="term" style="height:96px"><div class="tbar"><i></i><i></i><i></i>&nbsp;GitLab Runner · Build Environment<span class="chip" id="antTool" style="margin-left:auto">Ant: not installed</span></div><div id="bterm"></div></div>
+     <div style="display:grid;grid-template-columns:96px 14px 76px 14px 1fr;align-items:center;margin-top:9px">
+       <div style="display:grid;gap:4px"><div class="mini" id="bin1" style="--c:var(--gl)">Source Code</div><div class="mini" id="bin2" style="--c:var(--gl)">Build Scripts</div><div class="mini" id="bin3" style="--c:var(--gl)">Dependencies</div></div>
+       <div class="arrow">→</div><div class="mini" id="antBuild" style="--c:var(--nx);padding:14px 4px">⚙ Ant Build</div><div class="arrow">→</div>
+       <div class="rv" id="bWar"><div class="war">${IC.war}application.war</div><div style="font-size:9px;color:var(--mut);margin-top:3px;text-align:center">Application Artifact</div></div>
+     </div></div><div class="pipebar"><i id="bBar"></i></div>`));
+
+  B.push(box('cont','stage', 'pkg','CONTAINERIZE','Build the application-specific Liberty image',
+   `<div class="bd" style="display:grid;grid-template-columns:172px 1fr;gap:10px">
+     <div class="box imgstack" id="img" style="padding:6px 7px">
+       <div style="font-size:9px;letter-spacing:.12em;font-weight:750;color:#93c5fd" id="imgT">LIBERTY BASE IMAGE</div>
+       <div style="font-size:9px;color:var(--mut);margin-bottom:2px" id="imgS">org/liberty-base · reusable platform image</div>
+       ${layer('al','#fbbf24','application.war → /config/apps')}
+       ${layer('bl5','#5eead4','Common Runtime Configuration')}${layer('bl4','#a78bfa','LDAP Trust / Trusted Keys')}
+       ${layer('bl3','#fb923c','Oracle Standard Drivers')}${layer('bl2','#34d399','JDBC Driver')}${layer('bl1','#4f94ff','WebSphere Liberty')}
+       <div class="rv mono" id="cTag" style="margin-top:5px;font-size:9.4px;color:#fdba74;text-align:center">${IMG}:${COMMIT}</div>
+     </div>
+     <div><div style="font-size:9px;letter-spacing:.12em;color:var(--mut);font-weight:700">APPLICATION ARTIFACT</div>
+       <div class="box" style="height:40px;margin-top:4px;display:grid;place-items:center;border-style:dashed"><div class="rv" id="cWar"><div class="war">${IC.war}application.war</div></div></div>
+       <div class="term" id="cterm" style="height:122px;margin-top:8px;font-size:9px"></div></div>
+    </div><div class="pipebar"><i id="cBar"></i></div>`));
+
+  B.push(box('dep','stage', 'branch','DEPLOY','Update deployment configuration (GitOps)',
+   `<div class="bd">${dstep('d1','Clone Deployment Repo','git clone')}${dstep('d2','Read deployment configuration','values.yaml')}${dstep('d3','Update image tag','image.tag')}${dstep('d4','Commit','git commit')}${dstep('d5','Push','git push')}
+    <div class="box mono" style="margin-top:7px;padding:6px 9px;font-size:10px;line-height:1.6">
+      <div style="color:var(--dim)">values.yaml › image.tag</div>
+      <div><span id="dOld" style="color:#94a3b8">tag: ${PREV}</span> <span class="rv" id="dNew" style="color:#86efac">→ tag: ${COMMIT}</span></div></div>
+    <div style="font-size:9.5px;color:var(--dim);margin-top:6px">GitLab does not deploy to OpenShift — it only changes Git.</div></div>
+    <div class="pipebar"><i id="dBar"></i></div>`));
+
+  B.push(box('quay','', 'quay','QUAY CONTAINER REGISTRY','quay.example.com',
+   `<div class="bd"><div class="mono" style="font-size:10px;color:#bae6fd;margin-bottom:5px">org/${IMG}</div>
+     <div style="display:grid;grid-template-columns:70px 1fr 50px;font-size:8.8px;color:var(--dim);letter-spacing:.08em;padding:0 6px">TAG<span>DIGEST</span><span>PUSHED</span></div>
+     <div class="rv" id="qNew"><div class="fr mono" style="display:grid;grid-template-columns:70px 1fr 50px;font-size:9.8px;border:1px solid rgba(56,189,248,.45)"><span class="hash">${COMMIT}</span><span style="color:#94a3b8">sha256:7c1e…9ab2</span><span style="color:#86efac">just now</span></div></div>
+     <div class="fr mono" style="display:grid;grid-template-columns:70px 1fr 50px;font-size:9.8px"><span style="color:#94a3b8">9f8e7d6c</span><span style="color:#64748b">sha256:4be1…0c3f</span><span style="color:#64748b">2d ago</span></div>
+     <div class="rv" id="qNote" style="font-size:9.5px;color:#7dd3fc;margin-top:6px">Image tag = Git commit ID</div></div>`));
+
+  B.push(box('drepo','', 'gitlab','GITLAB','Deployment Repository · org/inventory-deploy (conceptual)',
+   `<div class="tree" id="tree"><span class="d">deployment-repo/</span>
+├── <span class="d">charts/</span>
+│   └── <span class="d">application/</span>          <span class="cm">Helm chart</span>
+│       ├── <span class="f">Chart.yaml</span>
+│       ├── <span class="f" id="trV">values.yaml</span>       <span class="k">tag: <span id="trTag">${PREV}</span></span>
+│       └── <span class="d">templates/</span>
+│           ├── <span class="f" id="tt1">deployment.yaml</span>
+│           ├── <span class="f" id="tt2">configmap.yaml</span>
+│           ├── <span class="f" id="tt3">secret.yaml</span>
+│           ├── <span class="f" id="tt4">service-http.yaml</span>
+│           ├── <span class="f" id="tt5">service-iiop.yaml</span>
+│           └── <span class="f" id="tt6">route.yaml</span>
+└── <span class="d">environments/</span> <span class="f">test/ prod/ external/</span></div>
+    <div class="rv mono" id="drCommit" style="margin:5px 12px 0;font-size:9.6px;color:#cbd5e1"><span class="hash">5e6f7a8b</span> chore(deploy): ${IMG} → ${COMMIT}</div>`,
+   `<span class="sep-badge" style="top:-9px;background:#0b1120">REPO 2 · SEPARATE DEPLOYMENT REPO</span>`));
+
+  B.push(box('argo','', 'argo','ARGO CD','GitOps controller · watches deployment repo',
+   `<div class="radar" id="argoRadar"></div><div class="bd">
+     <div class="fr" style="margin-bottom:7px"><span class="n">app: inventory-test</span><span class="d" id="arRev">rev 3c4d5e6f</span></div>
+     <div class="ds"><div class="box"><b>DESIRED STATE</b><small>Git · deployment repo</small><span class="mono" id="arD" style="color:#fdba74">${PREV}</span></div>
+       <div class="box"><b>CURRENT STATE</b><small>OpenShift · live</small><span class="mono" id="arC" style="color:#cbd5e1">${PREV}</span></div></div>
+     <div class="syncbig" id="arSync"><i class="spin"></i><span id="arSyncT">Synced · ${PREV}</span></div>
+     <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--mut)"><span>Health: <span id="arH">Healthy</span></span><span>Sync policy: <span style="color:#fecdd3">automatic (TEST)</span></span></div></div>`));
+
+  B.push(box('helm','', 'helm','HELM','Renders manifests during Argo CD sync',
+   `<div class="bd"><div class="mini mono" id="hVals" style="--c:var(--gl);text-align:left;font-size:9.5px">values.yaml · image.tag: <span id="hTag">${PREV}</span></div>
+     <div style="font-size:8.8px;letter-spacing:.12em;color:var(--dim);margin:6px 0 3px">+ TEMPLATES</div>
+     <div class="tpl"><div class="mini" id="ht1" style="--c:var(--hm)">deployment</div><div class="mini" id="ht2" style="--c:var(--hm)">configmap</div><div class="mini" id="ht3" style="--c:var(--hm)">secret</div><div class="mini" id="ht4" style="--c:var(--hm)">service-http</div><div class="mini" id="ht5" style="--c:var(--hm)">service-iiop</div><div class="mini" id="ht6" style="--c:var(--hm)">route</div></div>
+     <div class="gear" id="hGear">${IC.gear}helm template → manifests</div>
+     <div class="rv res" id="hr1"><b>Deployment</b><span>liberty-app</span></div><div class="rv res" id="hr2"><b>ConfigMap</b><span>liberty-app-config</span></div>
+     <div class="rv res" id="hr3"><b>Secret</b><span>liberty-app-secrets</span></div><div class="rv res" id="hr4"><b>Service</b><span>inventory-http :9080</span></div>
+     <div class="rv res" id="hr5"><b>Service</b><span>inventory-iiop :2809</span></div><div class="rv res" id="hr6"><b>Route</b><span>inventory</span></div></div>`));
+
+  B.push(box('ocp','', 'ocp','RED HAT OPENSHIFT','Container platform · apps.example.com',
+   `<div class="ns" style="left:12px;top:48px;width:666px;height:394px"><span>NAMESPACE / PROJECT · inventory-test</span></div>`));
+
+  B.push(box('client','', 'client','EXTERNAL CLIENT','Browser / web-service consumer',
+   `<div class="bd"><div class="mono" style="font-size:9.2px;color:#cbd5e1;line-height:1.5">GET https://inventory-test<br>.apps.example.com/api/stock</div>
+    <div class="rv" id="clResp" style="margin-top:5px"><span class="chip ok">200 OK · via Route</span></div></div>`));
+
+  const lane = (k, n, pol, gate) => `<div class="lane" id="lane${k}"><div class="r1"><b>${n}</b><span class="chip ${gate?'':'ok'}" style="${gate?'border-color:rgba(251,191,36,.5);color:#fde68a':''}">${pol}</span></div>
+     <div class="r2">${gate?'<span class="gate">⛨ approval</span>→':'<span style="color:#86efac">⟳ auto sync</span>→'}<span class="chip" id="e${k}">Not deployed</span></div></div>`;
+  B.push(box('env','', 'env','ENVIRONMENTS','Argo CD sync policy per environment',
+   lane('T','TEST','Automatic',false)+lane('P','PROD','Manual',true)+lane('E','EXTERNAL','Manual',true)+
+   `<div style="font-size:9.5px;color:var(--dim);margin:8px 10px 0;line-height:1.4">PROD and EXTERNAL are promoted independently.</div>`));
+
+  B.push(k8('route','route','ROUTE','inventory','external · TLS edge'));
+  B.push(k8('http','svc','SERVICE · HTTP','inventory-http','web traffic :9080'));
+  B.push(k8('ejb','ejb','EJB CLIENT','internal app','in-cluster caller'));
+  B.push(k8('iiop','svc','SERVICE · IIOP','inventory-iiop','EJB / IIOP :2809'));
+  B.push(podHTML(1,'liberty-app-7d9f8c-x2k4q'));
+  B.push(podHTML(2,'liberty-app-7d9f8c-p8r3n'));
+  B.push(k8('deploy','deploy','DEPLOYMENT','liberty-app',`image: …:${COMMIT}`));
+  B.push(k8('rs','rs','REPLICASET','liberty-app-7d9f8c','pods ready: <span id="rsN">0/2</span>'));
+  B.push(k8('cm','cm','CONFIGMAP','liberty-app-config','LDAP · JMS · DS · URLs · SVC'));
+  B.push(k8('secret','secret','SECRET','liberty-app-secrets','LDAP bind · DB credentials'));
+  B.push(`<div class="comp ghost box" id="appst" data-k="appst" style="--c:var(--ok);left:${L.appst.x}px;top:${L.appst.y}px;width:${L.appst.w}px;height:${L.appst.h}px;border-radius:10px"><i class="st" id="appDot"></i><span id="appTxt">inventory-service · not deployed yet</span></div>`);
+  B.push(`<svg class="layer" id="pk"></svg>`);
+  return B.join('');
+}
+
+/* =====================================================================
+   WIRES (SVG connection paths, computed from layout anchors)
+   ===================================================================== */
+function A(id, side, t){ t = t==null?.5:t; const r=L[id];
+  return side==='l'?[r.x,r.y+r.h*t]:side==='r'?[r.x+r.w,r.y+r.h*t]:side==='t'?[r.x+r.w*t,r.y]:[r.x+r.w*t,r.y+r.h]; }
+const hC=(a,b)=>{const d=(b[0]-a[0])*.5;return `M${a} C${a[0]+d},${a[1]} ${b[0]-d},${b[1]} ${b}`;};
+const vC=(a,b)=>{const d=(b[1]-a[1])*.5;return `M${a} C${a[0]},${a[1]+d} ${b[0]},${b[1]-d} ${b}`;};
+function P(pts, r){ r=r||14; let d=`M${pts[0]}`;
+  for(let i=1;i<pts.length-1;i++){ const [a,b,c]=[pts[i-1],pts[i],pts[i+1]];
+    const l1=Math.hypot(b[0]-a[0],b[1]-a[1]), l2=Math.hypot(c[0]-b[0],c[1]-b[1]), k=Math.min(r,l1/2,l2/2);
+    const p1=[b[0]+(a[0]-b[0])/l1*k, b[1]+(a[1]-b[1])/l1*k], p2=[b[0]+(c[0]-b[0])/l2*k, b[1]+(c[1]-b[1])/l2*k];
+    d+=` L${p1} Q${b} ${p2}`; }
+  return d+` L${pts[pts.length-1]}`; }
+
+const WIRES = {
+  dev2src:[hC(A('dev','r'),A('src','l')),'var(--gl)'],
+  src2build:[hC(A('src','r',.42),A('build','l',.35)),'var(--gl)'],
+  nexus2build:[hC(A('nexus','r',.45),A('build','l',.62)),'var(--nx)'],
+  build2cont:[P([[842,282],[857,282],[857,82],[1128,82],[1128,150]]),'var(--ci)'],
+  cont2quay:[vC([960,364],A('quay','t',.5)),'var(--qy)'],
+  cont2dep:[P([[1200,98],[1200,82],[1300,82],[1300,98]],8),'var(--ci)'],
+  drepo2dep:[vC(A('drepo','t',.3),A('dep','b',.3)),'var(--gl)'],
+  dep2drepo:[vC(A('dep','b',.7),A('drepo','t',.62)),'var(--gl)'],
+  drepo2argo:[vC(A('drepo','b',.5),A('argo','t',.5)),'var(--ar)'],
+  argo2helm:[hC(A('argo','l',.35),A('helm','r',.45)),'var(--hm)'],
+  helm2ocp:[hC(A('helm','l',.2),A('deploy','r',.5)),'var(--hm)'],
+  quay2pod:[`M962,505 C890,505 650,470 ${A('pod1','t',.65)}`,'var(--qy)'],
+  deploy2rs:[vC(A('deploy','b'),A('rs','t')),'var(--k8)'],
+  rs2pod1:[hC(A('rs','l',.4),A('pod1','r',.35)),'var(--k8)'],
+  rs2pod2:[hC(A('rs','l',.7),A('pod2','r',.25)),'var(--k8)'],
+  cm2pod1:[hC(A('cm','l',.4),A('pod1','r',.72)),'#5eead4'],
+  cm2pod2:[hC(A('cm','l',.6),A('pod2','r',.5)),'#5eead4'],
+  sec2pod1:[hC(A('secret','l',.4),A('pod1','r',.9)),'#5eead4'],
+  sec2pod2:[hC(A('secret','l',.6),A('pod2','r',.7)),'#5eead4'],
+  client2route:[hC(A('client','r',.6),A('route','l')),'#e2e8f0'],
+  route2http:[hC(A('route','r'),A('http','l')),'var(--os)'],
+  http2pod1:[hC(A('http','r'),A('pod1','l',.45)),'var(--k8)'],
+  http2pod2:[hC(A('http','r',.65),A('pod2','l',.3)),'var(--k8)'],
+  ejb2iiop:[hC(A('ejb','r'),A('iiop','l')),'#c4b5fd'],
+  iiop2pod1:[hC(A('iiop','r',.35),A('pod1','l',.8)),'#c4b5fd'],
+  iiop2pod2:[hC(A('iiop','r',.6),A('pod2','l',.65)),'#c4b5fd'],
+  argo2env:[P([[1262,920],[1262,933],[125,933],[125,920]],10),'var(--ar)']
+};
+const LABELS = {
+  lbRoute:[274,532,'EXTERNAL ENTRY POINT (HTTP only)'],
+  lbIiop:[272,842,'Internal EJB communication · uses IIOP service name (inventory-iiop:2809)'],
+  lbMount:[750,796,'mounted into Liberty pods'],
+  lbPull:[800,487,'image pull ← Quay']
+};
+const NS='http://www.w3.org/2000/svg';
+function svgEl(t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function drawWires(){
+  const s=$('wires');
+  for(const id in WIRES){ const [d,c]=WIRES[id];
+    const b=svgEl('path',{d,class:'w',id:'w-'+id}); b.style.setProperty('--wc',c); s.appendChild(b);
+    const f=svgEl('path',{d,class:'wf',id:'wf-'+id}); f.style.setProperty('--wc',c); s.appendChild(f); }
+  for(const id in LABELS){ const [x,y,t]=LABELS[id]; const e=svgEl('text',{x,y,class:'wlbl',id}); e.textContent=t; s.appendChild(e); }
+}
+
+/* =====================================================================
+   ENGINE — virtual clock, tasks, tweens, deterministic replay
+   ===================================================================== */
+const $=id=>document.getElementById(id);
+let STEP=0, mode='playing', speed=1, vt=0, stepStart=0, stepEnd=0, tasks=[], tweens=[], REPLAY=false, follow=false, selKey=null;
+const stage=$('stage'), vp=$('vp');
+const ease=p=>p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
+
+function at(ms, fn){ if(REPLAY){ fn(); return; } tasks.push({t:vt+ms, fn}); stepEnd=Math.max(stepEnd, vt+ms); }
+function tween(ms, fn, done){ if(REPLAY){ fn(1); done&&done(); return; } tweens.push({s:vt,d:ms,fn,done}); stepEnd=Math.max(stepEnd, vt+ms); }
+
+/* ---- visual helpers (all replay-safe) ---- */
+const on=(...ids)=>ids.forEach(i=>$(i)&&$(i).classList.remove('ghost'));
+const show=(...ids)=>ids.forEach(i=>$(i)&&$(i).classList.add('show'));
+const hide=(...ids)=>ids.forEach(i=>$(i)&&$(i).classList.remove('show'));
+const cls=(id,c,v=true)=>{const e=$(id); if(e) e.classList.toggle(c,v);};
+const ds=(id,s)=>{const e=$(id); if(e) e.dataset.s=s;};
+const txt=(id,s)=>{const e=$(id); if(e) e.textContent=s;};
+const html=(id,s)=>{const e=$(id); if(e) e.innerHTML=s;};
+const chip=(id,c,t)=>{const e=$(id); if(!e) return; e.className='chip '+(c||''); if(t!=null) e.textContent=t;};
+const pst=(id,c,t)=>{const e=$(id); if(!e) return; e.className='pstat '+(c||''); e.textContent=t;};
+const stp=(id,s)=>{const e=$(id); if(e) e.className='step '+(s||'');};
+const lane=(k,s,t)=>{cls('lane'+k,'ok',s==='ok');cls('lane'+k,'wait',s==='wait');chip('e'+k,s,t);};
+const bar=(id,w)=>{const e=$(id); if(e) e.style.width=w;};
+function wire(...ids){ ids.forEach(i=>cls('w-'+i,'on')); }
+function flow(...ids){ if(REPLAY) return; ids.forEach(i=>{cls('w-'+i,'on');cls('wf-'+i,'on');}); }
+function unflow(...ids){ ids.forEach(i=>cls('wf-'+i,'on',false)); }
+function lbl(...ids){ ids.forEach(i=>cls(i,'on')); }
+function flash(id){ if(REPLAY) return; const e=$(id); if(!e) return; e.classList.remove('flash'); void e.offsetWidth; e.classList.add('flash'); }
+
+/* ---- packets travelling along SVG paths ---- */
+function pkt(wid, o){ o=o||{};
+  if(REPLAY){ o.done&&o.done(); return; }
+  const path=$('w-'+wid); if(!path){ o.done&&o.done(); return; }
+  const len=path.getTotalLength(), col=o.color||WIRES[wid][1], g=svgEl('g',{class:'pkt'});
+  const trail=[0,1,2].map(k=>{const c=svgEl('circle',{r:3.6-k});c.style.fill=col;c.style.opacity=.5-k*.14;g.appendChild(c);return c;});
+  const halo=svgEl('circle',{r:12}); halo.style.fill=col; halo.style.opacity=.16; g.appendChild(halo);
+  const core=svgEl('circle',{r:o.size||5.5}); core.style.fill='#fff'; core.style.stroke=col; core.style.strokeWidth=3;
+  core.style.filter=`drop-shadow(0 0 6px ${col})`; g.appendChild(core);
+  let lab;
+  if(o.label){ lab=svgEl('g',{}); const w=o.label.length*6.3+14;
+    const r=svgEl('rect',{x:-w/2,y:-33,width:w,height:18,rx:5}); r.style.stroke=col; lab.appendChild(r);
+    const t=svgEl('text',{x:0,y:-20.5,'text-anchor':'middle'}); t.textContent=o.label; lab.appendChild(t); g.appendChild(lab); }
+  $('pk').appendChild(g); cls('w-'+wid,'hot');
+  const place=(p,el)=>{const q=path.getPointAtLength(len*(o.rev?1-p:p)); el.setAttribute('transform',`translate(${q.x},${q.y})`); };
+  tween(o.dur||1400, p=>{ const e=ease(p); place(e,halo); place(e,core); lab&&place(e,lab);
+      trail.forEach((c,k)=>place(Math.max(0,e-.025*(k+1)),c)); },
+    ()=>{ cls('w-'+wid,'hot',false); if(!o.keep) g.remove(); o.done&&o.done(); });
+}
+
+/* ---- terminals that type themselves ---- */
+function term(id, lines, t0, cps){ cps=cps||42; let t=t0||0; const el=$(id);
+  lines.forEach(([c,s,typed])=>{
+    at(t,()=>{ const d=document.createElement('div'); d.className=c||''; el.appendChild(d);
+      if(!typed || REPLAY) d.textContent=s;
+      else { d.classList.add('cur'); tween(s.length*1000/cps, p=>d.textContent=s.slice(0,Math.round(p*s.length)), ()=>d.classList.remove('cur')); }
+      const max=+(el.dataset.max||6); while(el.children.length>max) el.removeChild(el.firstChild); });
+    t+= typed ? s.length*1000/cps+260 : 200; });
+  return t;
+}
+
+/* ---- transient overlays (not replayed) ---- */
+function note(title, text, x, y, c, w){ if(REPLAY) return;
+  const n=document.createElement('div'); n.className='note'; n.style.left=x+'px'; n.style.top=y+'px'; if(w) n.style.maxWidth=w+'px';
+  if(c) n.style.setProperty('--c',c); n.innerHTML=(title?`<b>${title}</b>`:'')+text; stage.appendChild(n);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>n.classList.add('show'))); return n; }
+function bubble(x,y,t,s){ if(REPLAY) return; let b=$('bub'); if(!b){ b=document.createElement('div'); b.id='bub'; b.className='bubble'; stage.appendChild(b); }
+  b.style.left=x+'px'; b.style.top=y+'px'; b.innerHTML=`<b>${t}</b>${s}`; b.classList.add('show'); }
+function unbubble(){ const b=$('bub'); b&&b.classList.remove('show'); }
+
+const lensEl=$('lens'), lensBg=$('lensbg');
+function lens(o){ if(REPLAY) return false;
+  lensEl.style.setProperty('--c',o.c||'#38bdf8'); txt('lensT',o.title); txt('lensS',o.sub||''); txt('lensZ','ZOOM ▸ '+(o.zoom||''));
+  lensEl.style.width=o.w?`min(${o.w}px, calc(100% - 20px))`:''; $('lensbody').innerHTML=o.html; $('lensbody').scrollTop=0;
+  let dx=0, dy=0; const src=o.from&&$(o.from);
+  if(src){ const a=src.getBoundingClientRect(), v=vp.getBoundingClientRect(); dx=a.left+a.width/2-(v.left+v.width/2); dy=a.top+a.height/2-(v.top+v.height/2); }
+  lensEl.style.transition='none'; lensEl.classList.remove('show');
+  lensEl.style.transform=`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(.08)`; void lensEl.offsetWidth;
+  lensEl.style.transition=''; lensEl.style.transform=''; lensEl.classList.add('show'); lensBg.classList.add('show');
+  document.body.classList.add('lensopen'); fitLens(); return true; }
+function closeLens(){ lensEl.classList.remove('show'); lensBg.classList.remove('show'); document.body.classList.remove('lensopen'); }
+/* keep the detail lens inside the free area (above the presentation caption), scaling it down if needed */
+function fitLens(){ if(!lensEl.classList.contains('show')) return;
+  const v=vp.getBoundingClientRect(), pres=document.body.classList.contains('pres');
+  const capH=pres?$('cap').offsetHeight+18:0, avail=v.height-capH-16;
+  lensEl.style.maxHeight='none'; const h=lensEl.scrollHeight, k=Math.max(.62,Math.min(1,avail/h));
+  lensEl.style.setProperty('--ls',k); lensEl.style.maxHeight=(avail/k+2)+'px'; lensEl.style.top=(8+avail/2)+'px'; }
+
+/* ---- camera ---- */
+function fitScale(){ const r=vp.getBoundingClientRect(); return Math.min(r.width/W, r.height/H)*.97; }
+let userView=null, cur={s:1,tx:0,ty:0};
+function applyCam(s,tx,ty,instant){ cur={s,tx,ty}; stage.style.transition=instant?'none':''; stage.style.transform=`translate(${tx}px,${ty}px) scale(${s})`; }
+function zoomAt(k,px,py){ const f=fitScale(), s=Math.max(f*.8,Math.min(3,cur.s*k)), kk=s/cur.s;
+  userView={s,tx:px-(px-cur.tx)*kk,ty:py-(py-cur.ty)*kk}; applyCam(userView.s,userView.tx,userView.ty,true); }
+function panBy(dx,dy){ userView={s:cur.s,tx:cur.tx+dx,ty:cur.ty+dy}; applyCam(userView.s,userView.tx,userView.ty,true); }
+function resetView(){ userView=null; camera(); }
+function camera(){
+  if(userView){ applyCam(userView.s,userView.tx,userView.ty,true); return; }
+  const r0=vp.getBoundingClientRect(), f=fitScale(); let s=f, cx=W/2, cy=H/2;
+  const ch=document.body.classList.contains('pres')&&STEPS[STEP]&&STEPS[STEP].focus.length?$('cap').offsetHeight+30:0;
+  const r={width:r0.width,height:r0.height-ch};
+  const fo=STEPS[STEP]&&STEPS[STEP].focus;
+  if(follow && fo && fo.length){ let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;
+    fo.forEach(k=>{const b=L[k]; if(!b) return; x1=Math.min(x1,b.x); y1=Math.min(y1,b.y); x2=Math.max(x2,b.x+b.w); y2=Math.max(y2,b.y+b.h);});
+    const pad=60, bw=x2-x1+pad*2, bh=y2-y1+pad*2;
+    s=Math.max(f, Math.min(r.width/bw, r.height/bh, Math.max(f*2.6,1.2))); cx=(x1+x2)/2; cy=(y1+y2)/2; }
+  let tx=r.width/2-cx*s, ty=r.height/2-cy*s;
+  if(W*s>r.width) tx=Math.min(0,Math.max(r.width-W*s,tx)); else tx=(r.width-W*s)/2;
+  if(H*s>r.height) ty=Math.min(0,Math.max(r.height-H*s,ty)); else ty=(r.height-H*s)/2;
+  applyCam(s,tx,ty,false);
+}
+
+/* ---- touch / mouse: pinch-zoom, drag-pan, wheel-zoom ---- */
+const ptrs=new Map(); let dragged=false, pinch=null, lastTap=0;
+const skipGesture=e=>e.target.closest('#lens,#cap,#zoomc,#lensbg');
+vp.addEventListener('pointerdown',e=>{ if(skipGesture(e)) return; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); dragged=false;
+  if(ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinch={d:Math.hypot(a.x-b.x,a.y-b.y)}; } });
+vp.addEventListener('pointermove',e=>{ const p=ptrs.get(e.pointerId); if(!p) return;
+  const v=vp.getBoundingClientRect();
+  if(ptrs.size===1){ const dx=e.clientX-p.x, dy=e.clientY-p.y;
+    if(dragged||Math.hypot(dx,dy)>6){ if(!dragged){ dragged=true; try{vp.setPointerCapture(e.pointerId);}catch(_){} } panBy(dx,dy); p.x=e.clientX; p.y=e.clientY; } }
+  else if(ptrs.size===2 && pinch){ p.x=e.clientX; p.y=e.clientY; const [a,b]=[...ptrs.values()], d=Math.hypot(a.x-b.x,a.y-b.y);
+    if(pinch.d>0) zoomAt(d/pinch.d,(a.x+b.x)/2-v.left,(a.y+b.y)/2-v.top); pinch.d=d; dragged=true; } });
+const endPtr=e=>{ ptrs.delete(e.pointerId); if(ptrs.size<2) pinch=null;
+  if(e.type==='pointerup' && !dragged && e.pointerType==='touch'){ const n=performance.now(); if(n-lastTap<300 && !e.target.closest('[data-k]')) resetView(); lastTap=n; } };
+['pointerup','pointercancel','pointerleave'].forEach(t=>vp.addEventListener(t,endPtr));
+vp.addEventListener('wheel',e=>{ if(skipGesture(e)) return; e.preventDefault(); const v=vp.getBoundingClientRect();
+  zoomAt(Math.exp(-e.deltaY*.0015),e.clientX-v.left,e.clientY-v.top); },{passive:false});
+vp.addEventListener('dblclick',e=>{ if(!skipGesture(e) && !e.target.closest('[data-k]')) resetView(); });
+
+/* ---- navigation ---- */
+function go(n){
+  n=Math.max(0,Math.min(STEPS.length-1,n)); tasks=[]; tweens=[]; closeLens(); cls('banner','show',false);
+  stage.classList.add('no-anim'); stage.innerHTML=stageHTML(); drawWires();
+  REPLAY=true; for(let i=0;i<n;i++) STEPS[i].run(); REPLAY=false;
+  STEP=n; (STEPS[n].active||[]).forEach(k=>{ on(k); cls(k,'act'); });
+  if(selKey) cls(selKey,'sel');
+  void stage.offsetWidth; stage.classList.remove('no-anim');
+  stepStart=vt; stepEnd=vt; updateUI(); if(follow) userView=null; camera(); STEPS[n].run();
+}
+function frame(now){
+  const dt=Math.min(50, now-(frame.last||now)); frame.last=now;
+  if(mode!=='paused'){
+    vt+=dt*speed;
+    tasks.sort((a,b)=>a.t-b.t);
+    while(tasks.length && tasks[0].t<=vt) tasks.shift().fn();
+    for(const tw of tweens.slice()){ const p=Math.min(1,(vt-tw.s)/tw.d); tw.fn(p);
+      if(p>=1){ tweens.splice(tweens.indexOf(tw),1); tw.done&&tw.done(); } }
+    if(mode==='playing' && !tasks.length && !tweens.length && vt>=Math.max(stepStart+STEPS[STEP].dur, stepEnd+900)){
+      if(STEP<STEPS.length-1) go(STEP+1); else setMode('step'); }
+  }
+  requestAnimationFrame(frame);
+}
+
+/* =====================================================================
+   STEP HELPERS
+   ===================================================================== */
+const tr=fn=>{ if(!REPLAY) fn(); };
+function fly(from,to,htmlS,ms){ if(REPLAY) return;
+  const sr=stage.getBoundingClientRect(), k=sr.width/W, a=$(from).getBoundingClientRect(), b=$(to).getBoundingClientRect();
+  const d=document.createElement('div'); d.style.cssText='position:absolute;z-index:65;pointer-events:none;transform-origin:0 0'; d.innerHTML=htmlS; stage.appendChild(d);
+  const ax=(a.left-sr.left)/k, ay=(a.top-sr.top)/k, bx=(b.left-sr.left)/k, by=(b.top-sr.top)/k;
+  tween(ms,p=>{const e=ease(p); d.style.left=ax+(bx-ax)*e+'px'; d.style.top=ay+(by-ay)*e-Math.sin(e*Math.PI)*46+'px'; d.style.transform=`scale(${1-e*.2})`;},()=>d.remove());
+}
+const WARH=`<div class="war" style="box-shadow:0 0 24px rgba(251,191,36,.6)">${IC.war}application.war</div>`;
+const PHASES=[
+  {k:'SOURCE',c:'var(--gl)'},{k:'BUILD',c:'var(--ci)'},{k:'CONTAINERIZE',c:'var(--qy)'},{k:'DEPLOY',c:'var(--ar)'},
+  {k:'OPENSHIFT',c:'var(--os)'},{k:'RUNTIME',c:'var(--lb)'},{k:'APPLICATION TRAFFIC',c:'var(--ok)'}];
+
+/* =====================================================================
+   STATE MACHINE — each state: id, phase, duration, focus/active
+   components, explanatory text and the visual changes it performs.
+   The next state is simply the following entry.
+   ===================================================================== */
+const STEPS=[
+/* 1 ------------------------------------------------------------- */
+{id:'SOURCE_PUSH',ph:0,dur:1500,active:['dev'],focus:['dev','src'],
+ title:'Developer pushes source code',
+ what:'The developer stages, commits and pushes a change. Git records it as commit a1b2c3d4 and sends it to the GitLab source repository.',
+ why:'Everything downstream — build, image, deployment — is triggered by and traceable to this single commit.',
+ run(){ on('dev'); cls('pt1','on'); $('devterm').dataset.max=5;
+  const t=term('devterm',[['cmd','git add .',1],['cmd','git commit -m "Reserve stock"',1],['g','[main a1b2c3d4] Reserve stock',0],['cmd','git push origin main',1],['c','→ gitlab: main -> main',0]],300,30);
+  at(t,()=>{ show('devcommit'); flash('dev'); });
+  at(t+300,()=>{ on('src'); wire('dev2src'); pkt('dev2src',{label:'commit a1b2c3d4',dur:1500}); }); }},
+/* 2 ------------------------------------------------------------- */
+{id:'PIPELINE_TRIGGER',ph:0,dur:1500,active:['src'],focus:['dev','src','build'],
+ title:'GitLab receives the commit · pipeline triggered',
+ what:'The source repository flashes as commit a1b2c3d4 arrives, the main branch head moves, and GitLab reads .gitlab-ci.yml to create pipeline #48213.',
+ why:'The pipeline definition lives next to the code, so every push to the source repository automatically runs the same BUILD → CONTAINERIZE → DEPLOY process.',
+ run(){ at(0,()=>{ flash('src'); txt('srcHead',COMMIT); txt('srcHeadT','just now'); cls('srcBranch','new'); });
+  at(700,()=>show('srcPipe'));
+  at(900,()=>note('PIPELINE TRIGGERED','.gitlab-ci.yml defines three stages: BUILD → CONTAINERIZE → DEPLOY. GitLab starts pipeline #48213 for commit a1b2c3d4.',252,306,'var(--ci)',215));
+  at(1500,()=>{ on('pipe'); cls('pt2','on'); txt('pipeSub','Pipeline #48213 · main · a1b2c3d4 · running'); ds('pipe','proc');
+    wire('src2build'); pkt('src2build',{label:'pipeline #48213',color:'var(--ci)',dur:1300}); }); }},
+/* 3 ------------------------------------------------------------- */
+{id:'BUILD_START',ph:1,dur:3200,active:['build'],focus:['build','src','nexus'],
+ title:'BUILD stage starts on a GitLab Runner',
+ what:'The first of exactly three stages activates. A GitLab Runner prepares the build environment and checks out commit a1b2c3d4.',
+ why:'Builds run in a clean, repeatable runner environment rather than on a developer machine, so every artifact is produced the same way.',
+ run(){ on('build'); ds('build','proc'); bar('bBar','15%'); $('bterm').dataset.max=5;
+  term('bterm',[['c','Running with gitlab-runner 17.x',0],['c','Preparing the build environment…',0],['g','✓ Checked out a1b2c3d4 (main)',0],['y','Ant is not bundled in the runner image',0],['b','→ Resolving Ant from Nexus repository…',0]],200); }},
+/* 4 ------------------------------------------------------------- */
+{id:'NEXUS_ANT',ph:1,dur:3600,active:['nexus','build'],focus:['nexus','build'],
+ title:'Ant is obtained from Nexus',
+ what:'The runner downloads Apache Ant from the organization\'s Nexus registry/repository and installs it into the build environment.',
+ why:'Build tooling comes from a governed internal repository — consistent versions, no dependency on the public internet.',
+ run(){ on('nexus'); at(0,()=>{ flash('nexus'); cls('nxAnt','new'); });
+  at(350,()=>{ wire('nexus2build'); pkt('nexus2build',{label:'Ant 1.10.x',color:'var(--nx)',dur:1700}); });
+  at(500,()=>note('NEXUS → GITLAB RUNNER','Ant is pulled from the organization\'s Nexus registry/repository and made available in the GitLab build environment.',252,452,'var(--nx)',232));
+  at(2050,()=>{ chip('antTool','ok','Ant 1.10.x ✓ from Nexus'); bar('bBar','35%'); });
+  term('bterm',[['g','✓ apache-ant installed → ANT_HOME',0]],2100); }},
+/* 5 ------------------------------------------------------------- */
+{id:'ARTIFACT_CREATED',ph:1,dur:2000,active:['build'],focus:['build'],
+ title:'Ant builds the application artifact',
+ what:'Source code, build scripts and dependencies flow into the Ant build, which compiles and packages them into application.war.',
+ why:'The WAR is the deployable unit of the application. It is produced once here and then reused unchanged in the image.',
+ run(){ ['bin1','bin2','bin3'].forEach((b,i)=>at(i*260,()=>cls(b,'hot')));
+  at(850,()=>cls('antBuild','hot'));
+  const t=term('bterm',[['cmd','ant -f build.xml clean package',1],['c','[javac] Compiling 214 source files',0],['c','[war] Building war: dist/application.war',0],['g','BUILD SUCCESSFUL · Total time: 38 s',0]],900,40);
+  at(t,()=>{ ['bin1','bin2','bin3','antBuild'].forEach(b=>cls(b,'hot',false)); show('bWar'); bar('bBar','100%'); ds('build','ok'); flash('build'); });
+  at(t+200,()=>note('APPLICATION ARTIFACT','Source + build scripts + dependencies → Ant build → <span class="mono" style="color:#fde68a">application.war</span>',600,372,'#fbbf24',240)); }},
+/* 6 ------------------------------------------------------------- */
+{id:'CONTAINERIZE_START',ph:2,dur:2400,active:['cont'],focus:['build','cont'],
+ title:'CONTAINERIZE stage starts',
+ what:'The second pipeline stage activates and receives application.war produced by BUILD.',
+ why:'The artifact must be packaged with a runtime so OpenShift can run it as a container.',
+ run(){ on('cont'); ds('cont','proc'); bar('cBar','10%'); wire('build2cont'); $('cterm').dataset.max=8;
+  at(200,()=>pkt('build2cont',{label:'application.war',color:'#fbbf24',dur:1900,done:()=>{ show('cWar'); flash('cont'); }})); }},
+/* 7 ------------------------------------------------------------- */
+{id:'LIBERTY_BASE',ph:2,dur:3200,active:['cont'],focus:['cont'],
+ title:'The organization Liberty base image is used',
+ what:'The image build starts FROM the organization\'s Liberty base image. Its layers already contain WebSphere Liberty, the JDBC driver, Oracle standard drivers, LDAP trust / trusted key configuration and common runtime configuration.',
+ why:'Common enterprise runtime capabilities are built once by the platform team and reused by every application — developers never re-assemble them.',
+ run(){ ['bl1','bl2','bl3','bl4','bl5'].forEach((l,i)=>at(250+i*330,()=>show(l)));
+  term('cterm',[['c','# Containerfile',0],['b','FROM org/liberty-base',0],['c','# Liberty, JDBC, Oracle,',0],['c','# LDAP trust: inherited',0]],150);
+  at(400,()=>note('ORGANIZATION LIBERTY BASE IMAGE','Reusable, platform-owned image. WebSphere Liberty, JDBC driver, Oracle standard drivers and LDAP trust / trusted keys are already present — every application inherits them.',872,372,'#4f94ff',270));
+  at(2000,()=>bar('cBar','30%')); }},
+/* 8 ------------------------------------------------------------- */
+{id:'LIBERTY_CONFIG',ph:2,dur:7600,active:['cont'],focus:['cont'],
+ title:'Liberty configuration is split into logical parts',
+ what:'Instead of one giant server.xml, Liberty configuration is separated into server.xml plus LDAP Registry, JMS, Datasources, URLs and Service Config. Common runtime configuration stays in the platform/base-image layer; application/environment-specific parts are supplied by the deployment configuration.',
+ why:'Make application configuration easier for developers to manage and deploy consistently — and avoid baking environment-specific values into the image.',
+ run(){ if(!lens({title:'LIBERTY CONFIGURATION ARCHITECTURE',sub:'Separation of platform and deployment configuration',zoom:'CONTAINERIZE',c:'#4f94ff',from:'cont',w:960,html:`
+   <div class="cfgwrap" id="cfgw">
+     <div class="cfgmono" id="cfgMono"><div class="mh" id="cfgMh">Liberty Configuration — one giant server.xml</div>
+       <div class="mono" style="font-size:10.5px;color:#64748b;padding:10px 12px;line-height:1.7">&lt;server&gt; featureManager · ldapRegistry · jmsQueue · jmsConnectionFactory · dataSource · jdbcDriver · jndiEntry · urls · endpoints · … &lt;/server&gt;</div></div>
+     <div class="band base" id="bandB"><b>PLATFORM / BASE-IMAGE LAYER</b><small>Common runtime configuration is maintained in the platform/base-image layer.</small>
+       <div class="mono" style="font-size:10px;color:#93c5fd;margin-top:86px;line-height:1.6">+ JDBC driver · Oracle standard drivers<br>+ LDAP trust store / trusted keys · features</div></div>
+     <div class="band dep" id="bandD"><b>DEPLOYMENT CONFIGURATION LAYER</b><small>Application/environment-specific configuration is supplied through the deployment configuration (deployment repo → Helm → ConfigMaps / Secrets).</small></div>
+   </div><div class="purpose" id="cfgP">Purpose: <b>make application configuration easier for developers to manage and deploy consistently.</b></div>`})) return;
+  const w=$('cfgw').clientWidth, cx=w/2, nar=w<640, tw=nar?Math.floor((w-36)/2):128;
+  const bt=nar?8:176, dt=nar?208:176;   /* narrow screens: bands stack vertically and reuse the space the faded server.xml box leaves */
+  if(nar){ $('cfgw').style.height='470px'; const m=$('cfgMono'); m.style.width=w+'px'; m.style.height='200px';
+    Object.assign($('bandB').style,{width:'100%',top:bt+'px',height:'190px'}); Object.assign($('bandD').style,{left:'0',width:'100%',top:dt+'px',height:'254px'}); }
+  const T=[['server.xml','core · features · includes','#4f94ff'],['LDAP Registry','ldap.xml','#a78bfa'],['JMS','jms.xml','#f472b6'],['Datasources','datasources.xml','#34d399'],['URLs','urls.xml','#fbbf24'],['Service Config','services.xml','#5eead4']];
+  T.forEach(([n,f,c],i)=>{ const d=document.createElement('div'); d.className='tile'; d.id='tile'+i; d.style.setProperty('--tc',c); d.style.width=tw+'px';
+    d.innerHTML=`${n}<small>${f}</small>`;
+    d.style.left=(nar?12+(i%2)*(tw+12):cx-205+(i%3)*138)+'px'; d.style.top=(nar?44+Math.floor(i/2)*50:46+Math.floor(i/3)*52)+'px';
+    d.style.opacity=0; $('cfgw').appendChild(d); });
+  at(900,()=>{ T.forEach((_,i)=>at(i*120,()=>$('tile'+i).style.opacity=1)); txt('cfgMh','Split into logical configuration components'); $('cfgMono').style.borderColor='rgba(148,163,184,.25)'; });
+  at(2300,()=>{ show('bandB','bandD'); $('cfgMono').classList.add('gone'); });
+  at(2900,()=>{ const t0=$('tile0'); t0.style.left='14px'; t0.style.top=(nar?bt+70:236)+'px';
+    for(let i=1;i<6;i++){ const t=$('tile'+i);
+      if(nar){ t.style.left=(12+((i-1)%2)*(tw+12))+'px'; t.style.top=(dt+92+Math.floor((i-1)/2)*50)+'px'; }
+      else { t.style.left=(w/2+8+14+((i-1)%3)*138)+'px'; t.style.top=(250+Math.floor((i-1)/3)*52)+'px'; } } });
+  at(4300,()=>show('cfgP')); }},
+/* 9 ------------------------------------------------------------- */
+{id:'IMAGE_BUILD',ph:2,dur:3400,active:['cont'],focus:['cont'],
+ title:'Application artifact is copied into the Liberty image',
+ what:'The container build copies application.war into the Liberty image (/config/apps). A new application layer stacks on top of the base layers.',
+ why:'The result is an application-specific image: platform runtime + this exact application build, immutable and portable.',
+ run(){ term('cterm',[['y','COPY application.war \\',0],['y','  /config/apps/',0]],100);
+  at(200,()=>note('CONTAINER BUILD','Copy application artifact into Liberty image',1000,372,'#fbbf24',210));
+  at(500,()=>fly('cWar','al',WARH,1300));
+  at(1800,()=>{ hide('cWar'); show('al'); txt('imgT','APPLICATION-SPECIFIC LIBERTY IMAGE'); txt('imgS','base layers + application layer'); bar('cBar','65%'); flash('cont'); });
+  at(2300,()=>note('RESULT','Application-Specific Liberty Container Image — Liberty runtime, drivers and trust from the base, plus this application\'s WAR.',872,372,'#4f94ff',260)); }},
+/* 10 ------------------------------------------------------------ */
+{id:'IMAGE_TAG',ph:2,dur:3000,active:['cont'],focus:['cont','quay'],
+ title:'Image is tagged with the Git commit ID',
+ what:'The new image is tagged inventory-service:a1b2c3d4 — the short SHA of the commit that produced it.',
+ why:'A commit-ID tag makes every image, and therefore every running pod, traceable back to the exact source revision. No ambiguous "latest".',
+ run(){ term('cterm',[['c','# tag = $CI_COMMIT_SHORT_SHA',0],['g','✓ :a1b2c3d4',0]],100);
+  at(600,()=>{ show('cTag'); flash('cont'); bar('cBar','85%'); });
+  at(800,()=>note('IMAGE TAG = GIT COMMIT ID','inventory-service:<span class="hash">a1b2c3d4</span> ⇄ commit <span class="hash">a1b2c3d4</span>',872,372,'#fdba74',290)); }},
+/* 11 ------------------------------------------------------------ */
+{id:'QUAY_PUSH',ph:2,dur:3000,active:['quay','cont'],focus:['cont','quay'],
+ title:'Image is pushed to Quay',
+ what:'The runner pushes the tagged image to the Quay container registry. The new tag a1b2c3d4 appears in the org/inventory-service repository.',
+ why:'OpenShift will later pull the image from Quay. Quay stores images — it does not build them.',
+ run(){ on('quay'); cls('pt3','on'); wire('cont2quay'); term('cterm',[['b','push → quay.example.com',0]],100);
+  at(300,()=>pkt('cont2quay',{label:'inventory-service:a1b2c3d4',color:'var(--qy)',dur:1700,
+    done:()=>{ show('qNew','qNote'); cls('qNew','new'); flash('quay'); ds('quay','ok'); }}));
+  at(2100,()=>{ ds('cont','ok'); bar('cBar','100%'); term('cterm',[['g','✓ pushed :a1b2c3d4',0]]); });
+  at(2200,()=>note('','Quay is the registry of record for application images.',962,578,'var(--qy)',230)); }},
+/* 12 ------------------------------------------------------------ */
+{id:'DEPLOY_START',ph:3,dur:4200,active:['dep','drepo','src'],focus:['src','dep','drepo'],
+ title:'DEPLOY stage starts — a separate repository',
+ what:'The third stage activates. It works against the DEPLOYMENT repository — a different GitLab repository from the source repository.',
+ why:'Separating deployment configuration from application source lets Argo CD watch a repository that contains only desired runtime state.',
+ run(){ on('dep','drepo'); cls('pt4','on'); ds('dep','proc'); bar('dBar','10%');
+  tr(()=>{ cls('src','emph'); cls('drepo','emph'); });
+  at(300,()=>note('REPO 1 · SOURCE','Application source, build config and .gitlab-ci.yml.',252,306,'var(--gl)',215));
+  at(700,()=>note('REPO 2 · DEPLOYMENT (SEPARATE)','Helm charts, values, OpenShift templates and environment configuration. The DEPLOY stage only ever touches this repository.',975,590,'var(--gl)',240)); }},
+/* 13 ------------------------------------------------------------ */
+{id:'CLONE_DEPLOY_REPO',ph:3,dur:3400,active:['dep','drepo'],focus:['dep','drepo'],
+ title:'Deployment repository is cloned',
+ what:'The deploy job clones org/inventory-deploy and checks out its deployment configuration locally, then reads charts/application/values.yaml.',
+ why:'The job needs a working copy of the deployment configuration to change the image reference in Git.',
+ run(){ stp('d1','proc'); wire('drepo2dep');
+  at(200,()=>pkt('drepo2dep',{label:'git clone',color:'var(--gl)',dur:1500}));
+  at(1800,()=>{ stp('d1','ok'); stp('d2','proc'); cls('trV','hl'); bar('dBar','30%'); });
+  at(1900,()=>note('READ DEPLOYMENT CONFIGURATION','values.yaml currently points at <span class="mono">tag: previous-tag</span>.',975,590,'var(--gl)',240));
+  at(2900,()=>{ stp('d2','ok'); bar('dBar','40%'); }); }},
+/* 14 ------------------------------------------------------------ */
+{id:'UPDATE_IMAGE_TAG',ph:3,dur:7200,active:['dep','drepo'],focus:['dep','drepo'],
+ title:'Image tag is updated in the deployment configuration',
+ what:'The deploy job replaces image.tag previous-tag with a1b2c3d4 in the Helm values and commits the change to the deployment repository.',
+ why:'Argo CD watches this repository, so changing the Git configuration is what changes the desired OpenShift state.',
+ run(){ stp('d3','proc'); bar('dBar','55%');
+  const L1=(n,sg,body,id,c)=>`<div class="dl ${c||''}" ${id?`id="${id}"`:''}><span class="ln">${n}</span><span class="sg">${sg}</span><span class="tx">${body}</span></div>`;
+  if(lens({title:'GIT DIFF · DEPLOYMENT REPOSITORY',sub:'Deploy job edits Helm values — nothing is deployed directly',zoom:'DEPLOY',c:'#fc6d26',from:'dep',w:900,html:`
+    <div class="dgrid"><div>
+      <div class="step ok" style="font-size:12px"><i class="dot"></i>Clone Deployment Repo</div>
+      <div class="step ok" style="font-size:12px"><i class="dot"></i>Read deployment configuration</div>
+      <div class="step proc" id="ls3" style="font-size:12px"><i class="dot"></i>Update image tag</div>
+      <div class="step" id="ls4" style="font-size:12px"><i class="dot"></i>Commit</div>
+      <div class="step" id="ls5" style="font-size:12px"><i class="dot"></i>Push</div>
+      <div style="margin-top:16px;font-size:12px;line-height:1.55;color:var(--mut)">Before: <span class="mono" style="color:#94a3b8">tag: previous-tag</span><br>After: <span class="mono" style="color:#86efac">tag: a1b2c3d4</span></div></div>
+    <div><div class="diff"><div class="fh">deployment-repo / charts / application / <b>values.yaml</b></div>
+      ${L1(1,' ','<span class="k">image</span>:')}
+      ${L1(2,' ','  <span class="k">repository</span>: <span class="v">quay.example.com/inventory</span>')}
+      ${L1(3,' ','  <span class="k">tag</span>: <span class="v">previous-tag</span>','dlOld')}
+      <div class="dl add" id="dlNew" style="display:none"><span class="ln">3</span><span class="sg">+</span><span class="tx">  <span class="k">tag</span>: <span class="v" id="dlNewV"></span></span></div>
+      ${L1(4,' ','  <span class="k">pullPolicy</span>: <span class="v">IfNotPresent</span>')}
+      ${L1(5,' ','<span class="k">replicaCount</span>: <span class="v">2</span>')}</div>
+      <div class="term big-term" id="lterm"></div></div></div>`})){
+    at(700,()=>{ const o=$('dlOld'); o.classList.add('del'); o.querySelector('.sg').textContent='-'; });
+    at(1300,()=>{ $('dlNew').style.display='flex'; tween(900,p=>txt('dlNewV',COMMIT.slice(0,Math.round(p*8)))); });
+    at(2400,()=>{ $('ls3').className='step ok'; $('ls4').className='step proc'; });
+    const t=term('lterm',[['cmd','git add charts/application/values.yaml',1],['cmd','git commit -m "Deploy inventory-service a1b2c3d4"',1],['g','[main 5e6f7a8b] 1 file changed, 1 insertion(+), 1 deletion(-)',0]],2500,46);
+    at(t,()=>{ $('ls4').className='step ok'; });
+  }
+  at(2400,()=>{ show('dNew'); $('dOld').style.textDecoration='line-through'; txt('trTag',COMMIT); stp('d3','ok'); stp('d4','proc'); bar('dBar','70%'); });
+  at(5600,()=>{ stp('d4','ok'); bar('dBar','80%'); }); }},
+/* 15 ------------------------------------------------------------ */
+{id:'DEPLOY_REPO_PUSH',ph:3,dur:3600,active:['dep','drepo'],focus:['dep','drepo'],
+ title:'Deployment repository is committed and pushed',
+ what:'The deploy job pushes commit 5e6f7a8b back to the GitLab deployment repository. The pipeline finishes successfully.',
+ why:'GitLab\'s responsibility ends at Git. The cluster changes only because the desired state in Git changed.',
+ run(){ stp('d5','proc'); wire('dep2drepo');
+  at(300,()=>pkt('dep2drepo',{label:'git push · 5e6f7a8b',color:'var(--gl)',dur:1500,done:()=>{ flash('drepo'); show('drCommit'); cls('drCommit','new'); ds('drepo','ok'); }}));
+  at(2000,()=>{ stp('d5','ok'); ds('dep','ok'); bar('dBar','100%'); txt('pipeSub','Pipeline #48213 · main · a1b2c3d4 · passed ✓'); ds('pipe','ok'); });
+  at(2100,()=>note('PIPELINE PASSED','GitLab did not touch OpenShift. It built, pushed the image to Quay and updated Git.',975,590,'var(--ok)',240)); }},
+/* 16 ------------------------------------------------------------ */
+{id:'ARGO_DETECT',ph:3,dur:3400,active:['argo','drepo'],focus:['drepo','argo'],
+ title:'Argo CD detects the Git change',
+ what:'Argo CD periodically polls the deployment repository. It fetches the new revision 5e6f7a8b and re-evaluates the desired state: image tag a1b2c3d4.',
+ why:'Argo CD, not GitLab, is responsible for deployment. It continuously watches Git as the source of truth.',
+ run(){ on('argo'); cls('argoRadar','on'); wire('drepo2argo');
+  at(200,()=>note('ARGO CD WATCHES GIT','Periodic poll of org/inventory-deploy for new commits.',975,700,'var(--ar)',230));
+  at(400,()=>pkt('drepo2argo',{label:'poll',color:'var(--ar)',dur:900,rev:true,
+    done:()=>pkt('drepo2argo',{label:'new revision 5e6f7a8b',color:'var(--gl)',dur:1200})}));
+  at(2600,()=>{ txt('arRev','rev 5e6f7a8b'); txt('arD',COMMIT); flash('argo'); }); }},
+/* 17 ------------------------------------------------------------ */
+{id:'ARGO_OUT_OF_SYNC',ph:3,dur:3600,active:['argo'],focus:['argo','drepo'],
+ title:'Desired state ≠ current state · Out of Sync',
+ what:'Desired state (Git) now says image a1b2c3d4. Current state (OpenShift) still runs previous-tag. Argo CD marks the application Out of Sync.',
+ why:'Git is the source of truth for deployment configuration — any difference between Git and the cluster must be reconciled.',
+ run(){ at(300,()=>{ $('arSync').className='syncbig wait'; txt('arSyncT','⚠ Out of Sync'); ds('argo','wait'); });
+  at(700,()=>note('DESIRED vs CURRENT','Git: <span class="hash">a1b2c3d4</span> · Cluster: <span class="mono">previous-tag</span>',975,700,'var(--wait)',230)); }},
+/* 18 ------------------------------------------------------------ */
+{id:'ARGO_SYNC',ph:3,dur:2600,active:['argo','helm'],focus:['argo','helm'],
+ title:'Argo CD synchronizes the desired state',
+ what:'TEST has an automatic sync policy, so Argo CD starts a sync immediately. It renders the Helm chart at revision 5e6f7a8b.',
+ why:'Synchronization is how Argo CD makes the cluster match Git. It deploys — it never builds images.',
+ run(){ at(200,()=>{ $('arSync').className='syncbig proc'; txt('arSyncT','Syncing…'); ds('argo','proc'); txt('arH','Progressing'); });
+  at(700,()=>{ on('helm'); wire('argo2helm'); pkt('argo2helm',{label:'render chart @5e6f7a8b',color:'var(--hm)',dur:1300}); }); }},
+/* 19 ------------------------------------------------------------ */
+{id:'HELM_RENDER',ph:3,dur:4200,active:['helm'],focus:['helm','argo','drepo'],
+ title:'Helm renders OpenShift resources',
+ what:'values.yaml (with image.tag a1b2c3d4) plus the chart templates are rendered into Deployment, ConfigMap, Secret, HTTP Service, IIOP Service and Route manifests.',
+ why:'Templates stay generic; values carry the application/environment specifics. Helm generates resources — it does not build the application.',
+ run(){ at(0,()=>{ txt('hTag',COMMIT); cls('hVals','hot'); for(let i=1;i<7;i++) cls('tt'+i,'hl'); });
+  for(let i=1;i<7;i++) at(200+i*140,()=>cls('ht'+i,'hot'));
+  at(1300,()=>cls('hGear','run'));
+  for(let i=1;i<7;i++) at(1600+i*260,()=>show('hr'+i));
+  at(3500,()=>{ cls('hGear','run',false); cls('hVals','hot',false); for(let i=1;i<7;i++){ cls('ht'+i,'hot',false); cls('tt'+i,'hl',false);} ds('helm','ok'); });
+  at(400,()=>note('HELM','values.yaml + templates → rendered Kubernetes/OpenShift resources.',975,470,'var(--hm)',230)); }},
+/* 20 ------------------------------------------------------------ */
+{id:'OPENSHIFT_DEPLOY',ph:4,dur:6200,active:['ocp','deploy','rs','pod1','pod2'],focus:['ocp','helm','quay'],
+ title:'OpenShift creates / updates the resources',
+ what:'Argo CD applies the rendered manifests to namespace inventory-test. The Deployment\'s new image triggers a new ReplicaSet, which schedules Liberty pods. Each node pulls inventory-service:a1b2c3d4 from Quay.',
+ why:'OpenShift turns declared resources into running containers; the Deployment manages safe rollout from previous-tag to a1b2c3d4.',
+ run(){ on('ocp'); cls('pt5','on'); wire('helm2ocp');
+  at(200,()=>pkt('helm2ocp',{label:'apply manifests',color:'var(--hm)',dur:1300}));
+  at(1500,()=>{ on('deploy','cm','secret','route','http','iiop'); ds('deploy','ok'); ds('cm','ok'); ds('secret','ok'); flash('deploy'); });
+  at(1600,()=>note('OPENSHIFT RESOURCES','Deployment (image a1b2c3d4) → ReplicaSet → Liberty pods. The image is pulled from Quay.',272,625,'var(--os)',250));
+  at(2000,()=>{ wire('deploy2rs'); pkt('deploy2rs',{dur:700}); });
+  at(2700,()=>{ on('rs'); ds('rs','proc'); wire('rs2pod1','rs2pod2'); pkt('rs2pod1',{dur:800}); pkt('rs2pod2',{dur:800}); });
+  at(3500,()=>{ on('pod1','pod2'); ['1','2'].forEach(n=>{ pst('p'+n+'s','wait','Pending'); ds('pod'+n,'wait'); }); });
+  at(3900,()=>{ wire('quay2pod'); lbl('lbPull'); pkt('quay2pod',{label:'pull :a1b2c3d4',color:'var(--qy)',dur:1600,
+    done:()=>{ show('p1img','p2img'); ['1','2'].forEach(n=>{ pst('p'+n+'s','proc','Creating'); ds('pod'+n,'proc'); }); }}); }); }},
+/* 21 ------------------------------------------------------------ */
+{id:'CONFIG_MOUNT',ph:4,dur:4600,active:['cm','secret','pod1','pod2'],focus:['ocp'],
+ title:'Configuration is mounted into the Liberty pods',
+ what:'ConfigMaps and Secrets rendered from the deployment repository are mounted into each pod: LDAP Registry, JMS, Datasources, URLs and Service Config land in Liberty\'s configDropins/overrides location.',
+ why:'The application image provides the runtime and application artifact, while deployment configuration supplies environment/application-specific configuration.',
+ run(){ wire('cm2pod1','cm2pod2','sec2pod1','sec2pod2'); lbl('lbMount');
+  at(200,()=>{ pkt('cm2pod1',{label:'ConfigMap',dur:1100}); pkt('cm2pod2',{dur:1100}); });
+  at(600,()=>{ pkt('sec2pod1',{label:'Secret',dur:1100}); pkt('sec2pod2',{dur:1100}); });
+  for(let i=1;i<6;i++) at(1500+i*260,()=>{ cls('p1m'+i,'m'); cls('p2m'+i,'m'); });
+  at(300,()=>note('IMAGE vs DEPLOYMENT CONFIG','The application image provides the runtime and application artifact, while deployment configuration supplies environment/application-specific configuration.',272,625,'#5eead4',250)); }},
+/* 22 ------------------------------------------------------------ */
+{id:'LIBERTY_START',ph:5,dur:8200,active:['pod1','pod2'],focus:['pod1','pod2'],
+ title:'WebSphere Liberty starts inside the pod',
+ what:'Liberty launches, loads server.xml and the mounted overrides, initializes LDAP, datasources, JMS and URL/service configuration, discovers application.war, starts the application and opens the HTTP (9080) and IIOP (2809) endpoints.',
+ why:'Probes only report the pod Ready once Liberty and the application have fully started, so traffic is never sent to a half-initialized server.',
+ run(){ ['1','2'].forEach(n=>{ pst('p'+n+'s','proc','Starting'); bar('p'+n+'bar','100%'); });
+  const C=['Liberty process starts','Application configuration loaded','LDAP configuration initialized','Datasources initialized','JMS configuration initialized','URLs / service config loaded','Application artifact discovered','Application starts','HTTP endpoint available','IIOP endpoint available'];
+  const G=['[AUDIT] CWWKE0001I: The server defaultServer has been launched.','[AUDIT] CWWKG0028A: Processing included configuration resource: /config/configDropins/overrides/','[INFO] LDAP registry configured (ldap.xml, bind credentials from Secret)','[INFO] DataSource jdbc/InventoryDS ready (Oracle JDBC driver)','[INFO] JMS connection factory jms/InventoryCF configured','[INFO] URL and service configuration loaded (urls.xml, services.xml)','[INFO] Application found: /config/apps/application.war','[AUDIT] CWWKZ0001I: Application inventory-service started in 6.214 seconds.','[AUDIT] CWWKO0219I: TCP Channel defaultHttpEndpoint … listening on port 9080.','[INFO] IIOP endpoint (iiopEndpoint) listening on port 2809','[AUDIT] CWWKF0011I: The defaultServer server is ready to run a smarter planet.'];
+  const opened=lens({title:'INSIDE THE LIBERTY POD',sub:'liberty-app-7d9f8c-x2k4q · image inventory-service:a1b2c3d4',zoom:'POD',c:'#4f94ff',from:'pod1',w:1000,html:`
+   <div class="lsgrid"><div class="podz"><div class="ph"><span class="st" id="lzDot" data-s="proc"></span>WebSphere Liberty · defaultServer</div>
+     <div class="fs"><span class="r">/opt/ol/wlp/</span>          image · base
+<span class="r">/config/server.xml</span>    image · base
+<span class="a">/config/apps/</span>
+  <span class="a">application.war</span>     image · app layer
+<span class="m">/config/configDropins/overrides/</span>
+  <span id="fz1" class="dimx"><span class="m">ldap.xml</span>          ← Secret</span>
+  <span id="fz2" class="dimx"><span class="m">datasources.xml</span>   ← CM + Secret</span>
+  <span id="fz3" class="dimx"><span class="m">jms.xml</span>           ← ConfigMap</span>
+  <span id="fz4" class="dimx"><span class="m">urls.xml</span>          ← ConfigMap</span>
+  <span id="fz5" class="dimx"><span class="m">services.xml</span>      ← ConfigMap</span></div>
+     <div class="health"><span class="chip wait" id="hz1">startup: pending</span><span class="chip wait" id="hz2">readiness: pending</span><span class="chip wait" id="hz3">liveness: pending</span></div></div>
+   <div><div class="checks">${C.map((c,i)=>`<div class="step" id="cz${i}"><i class="dot"></i>${i+1}. ${c}</div>`).join('')}</div>
+     <div class="term logs" id="lzlog"></div><div class="started" id="lzOK">Starting…</div></div></div>`});
+  if(opened){ $('lzlog').dataset.max=7;
+    at(300,()=>{ for(let i=1;i<6;i++) at(i*90,()=>$('fz'+i).classList.remove('dimx')); });
+    C.forEach((_,i)=>at(500+i*560,()=>{ if(i) $('cz'+(i-1)).className='step ok'; $('cz'+i).className='step proc';
+      const d=document.createElement('div'); d.className=G[i].includes('AUDIT')?'b':'c'; d.textContent=G[i]; const lg=$('lzlog'); lg.appendChild(d); while(lg.children.length>7) lg.removeChild(lg.firstChild);
+      if(i===1){ chip('hz1','proc','startup: running'); } }));
+    at(500+10*560,()=>{ $('cz9').className='step ok'; const d=document.createElement('div'); d.className='g'; d.textContent=G[10]; $('lzlog').appendChild(d);
+      $('lzlog').removeChild($('lzlog').firstChild); chip('hz1','ok','startup: healthy'); chip('hz2','ok','readiness: healthy'); chip('hz3','ok','liveness: healthy');
+      const s=$('lzOK'); s.className='started ok'; s.textContent='● Application Started'; $('lzDot').dataset.s='ok'; });
+  }
+  at(6300,()=>{ ['1','2'].forEach(n=>{ pst('p'+n+'s','ok','Ready 1/1'); ds('pod'+n,'ok'); cls('p'+n+'h','up'); cls('p'+n+'i','up'); }); html('rsN','2/2'); ds('rs','ok'); }); }},
+/* 23 ------------------------------------------------------------ */
+{id:'SERVICES_READY',ph:5,dur:4200,active:['http','iiop','pod1','pod2'],focus:['ocp'],
+ title:'HTTP and IIOP services become available',
+ what:'Two distinct OpenShift Services select the ready Liberty pods: inventory-http (:9080) for web / web-service traffic and inventory-iiop (:2809) for internal EJB communication.',
+ why:'HTTP and IIOP have different consumers and exposure rules, so they are modeled as separate services rather than one generic service.',
+ run(){ wire('http2pod1','http2pod2','iiop2pod1','iiop2pod2');
+  at(200,()=>{ flow('http2pod1','http2pod2'); ds('http','ok'); flash('http'); });
+  at(900,()=>{ flow('iiop2pod1','iiop2pod2'); ds('iiop','ok'); flash('iiop'); });
+  at(500,()=>note('TWO DISTINCT SERVICES','<span class="mono">inventory-http :9080</span> — web traffic<br><span class="mono">inventory-iiop :2809</span> — internal EJB (IIOP)',272,625,'var(--k8)',250)); }},
+/* 24 ------------------------------------------------------------ */
+{id:'ROUTE_READY',ph:6,dur:3000,active:['client','route','http'],focus:['client','route','http','pod1'],
+ title:'OpenShift Route exposes the HTTP endpoint',
+ what:'The Route publishes inventory-test.apps.example.com and forwards to the HTTP Service. An external client request travels Route → HTTP Service → Liberty pod and back.',
+ why:'The Route is the only externally exposed entry point. Only HTTP traffic is published — IIOP stays inside the cluster.',
+ run(){ on('client','route'); ds('route','ok'); ds('client','ok'); wire('client2route','route2http'); lbl('lbRoute');
+  at(300,()=>pkt('client2route',{label:'HTTPS GET /api/stock',color:'#e2e8f0',dur:1000,done:()=>pkt('route2http',{color:'var(--os)',dur:650,
+    done:()=>pkt('http2pod1',{color:'var(--k8)',dur:650,done:()=>pkt('http2pod1',{rev:true,label:'200 OK',color:'var(--ok)',dur:650,
+    done:()=>pkt('route2http',{rev:true,color:'var(--ok)',dur:550,done:()=>pkt('client2route',{rev:true,color:'var(--ok)',dur:800,done:()=>show('clResp')})})})})})}));
+  at(400,()=>note('EXTERNAL PATH','External Client → OpenShift Route → HTTP Service → Liberty Pod',22,330,'var(--os)',215)); }},
+/* 25 ------------------------------------------------------------ */
+{id:'IIOP_INTERNAL',ph:6,dur:3000,active:['ejb','iiop','pod1','pod2'],focus:['ejb','iiop','pod1','pod2','route'],
+ title:'Internal EJB communication uses the IIOP service',
+ what:'An in-cluster application looks up remote EJBs using the IIOP service name (corbaname::inventory-iiop:2809). The call goes EJB client → IIOP Service → Liberty pod.',
+ why:'Internal EJB traffic uses a stable service name and never passes through the external OpenShift Route.',
+ run(){ on('ejb'); ds('ejb','ok'); wire('ejb2iiop'); lbl('lbIiop');
+  at(300,()=>pkt('ejb2iiop',{label:'corbaname::inventory-iiop:2809',color:'#c4b5fd',dur:1200,done:()=>pkt('iiop2pod2',{color:'#c4b5fd',dur:750,
+    done:()=>pkt('iiop2pod2',{rev:true,label:'EJB reply',color:'var(--ok)',dur:750,done:()=>pkt('ejb2iiop',{rev:true,color:'var(--ok)',dur:700})})})}));
+  at(400,()=>note('INTERNAL EJB COMMUNICATION','Uses IIOP service name. Does <b style="display:inline;letter-spacing:0;color:#fff">not</b> go through the external Route.',272,625,'#c4b5fd',250)); }},
+/* 26 ------------------------------------------------------------ */
+{id:'APPLICATION_READY',ph:6,dur:3800,active:['appst','argo','env'],focus:['ocp','env','argo'],
+ title:'Application is available · TEST synced automatically',
+ what:'All pods are Ready and both services have endpoints. Argo CD reports inventory-test Synced and Healthy: current state now equals desired state a1b2c3d4.',
+ why:'TEST uses automatic sync, so a successful pipeline reaches TEST with no human step.',
+ run(){ on('appst','env'); at(200,()=>{ cls('appst','ok'); ds('appDot','ok'); txt('appTxt','inventory-service · a1b2c3d4 · Application Available (TEST)'); flash('appst'); });
+  at(700,()=>{ $('arSync').className='syncbig ok'; txt('arSyncT','✓ Synced · a1b2c3d4'); txt('arC',COMMIT); txt('arH','Healthy'); ds('argo','ok'); flash('argo'); });
+  at(1100,()=>{ wire('argo2env'); pkt('argo2env',{label:'TEST · automatic sync',color:'var(--ok)',dur:1900,done:()=>{ lane('T','ok','Synced · Healthy'); flash('env'); }}); }); }},
+/* 27 ------------------------------------------------------------ */
+{id:'ENVIRONMENTS',ph:6,dur:6800,active:['env'],focus:['env','client','ocp'],
+ title:'PROD and EXTERNAL require manual approval',
+ what:'The PROD and EXTERNAL Argo CD applications see the new desired state but do not sync on their own. Each waits at its own approval gate; once approved, Argo CD syncs that environment.',
+ why:'Production-facing environments are promoted deliberately. Approvals are independent — PROD and EXTERNAL are not forced into a sequence.',
+ run(){ at(200,()=>{ lane('P','wait','Awaiting approval'); lane('E','wait','Awaiting approval'); ds('env','wait'); });
+  at(500,()=>note('MANUAL PROMOTION','PROD and EXTERNAL do not deploy automatically. An authorized approver triggers each sync independently.',238,640,'var(--wait)',230));
+  at(2700,()=>{ lane('E','proc','Approved · syncing'); pkt('argo2env',{label:'EXTERNAL · manual sync',color:'var(--wait)',dur:1400,done:()=>lane('E','ok','Synced (manual)')}); });
+  at(3500,()=>{ lane('P','proc','Approved · syncing'); pkt('argo2env',{label:'PROD · manual sync',color:'var(--wait)',dur:1400,done:()=>{ lane('P','ok','Synced (manual)'); ds('env','ok'); }}); }); }},
+/* 28 ------------------------------------------------------------ */
+{id:'END_TO_END',ph:6,dur:2000,active:[],focus:[],
+ title:'End-to-end replay',
+ what:'One packet now travels the entire path — commit, pipeline, Nexus/Ant, artifact, Liberty image, Quay, deployment repo, Argo CD, Helm, OpenShift, Liberty pod, services, Route and IIOP — pausing where each thing happens.',
+ why:'Seeing the full chain at once shows the causality: every runtime change is explained by a Git change.',
+ run(){ if(REPLAY) return;
+  const T=[[null,0,'dev','DEVELOPER','git push · commit a1b2c3d4'],['dev2src',0,'src','GITLAB SOURCE','commit received → pipeline triggered'],
+   ['src2build',0,'build','BUILD','Ant from Nexus → application.war'],['build2cont',0,'cont','CONTAINERIZE','Liberty base image + WAR → application image'],
+   ['cont2quay',0,'quay','QUAY','inventory-service:a1b2c3d4 stored'],['cont2quay',1,null],['cont2dep',0,'dep','DEPLOY','clone deploy repo · update image tag'],
+   ['dep2drepo',0,'drepo','DEPLOYMENT REPO','commit + push 5e6f7a8b'],['drepo2argo',0,'argo','ARGO CD','change detected → sync'],
+   ['argo2helm',0,'helm','HELM','values + templates → resources'],['helm2ocp',0,'deploy','OPENSHIFT','Deployment updated'],['deploy2rs',0,null],
+   ['rs2pod1',0,'pod1','LIBERTY POD','config mounted · Liberty started'],['http2pod1',1,'http','HTTP SERVICE','web traffic :9080'],
+   ['route2http',1,'route','ROUTE','external entry point'],['client2route',1,'client','EXTERNAL CLIENT','served via OpenShift Route']];
+  const actOnly=k=>{ document.querySelectorAll('.comp.act').forEach(e=>e.classList.remove('act')); k&&cls(k,'act'); };
+  const hop=i=>{ if(i>=T.length){ unbubble();
+      pkt('iiop2pod1',{rev:true,label:'IIOP · internal EJB',color:'#c4b5fd',dur:900,done:()=>{ actOnly('iiop'); bubble(L.iiop.x+L.iiop.w/2,L.iiop.y,'IIOP SERVICE','internal EJB — not via Route');
+        at(1300,()=>{ actOnly('appst'); bubble(L.appst.x+L.appst.w/2,L.appst.y,'APPLICATION','available · TEST auto · PROD/EXTERNAL manual');
+          at(1600,()=>{ unbubble(); actOnly(null); }); }); }}); return; }
+    const [w,rev,k,t,s]=T[i];
+    const arrive=()=>{ if(!t){ hop(i+1); return; } actOnly(k); bubble(L[k].x+L[k].w/2,L[k].y,t,s); at(1050,()=>hop(i+1)); };
+    if(w){ unbubble(); pkt(w,{rev:!!rev,color:'#7dd3fc',size:6.5,dur:rev&&!t?500:850,done:arrive}); } else arrive(); };
+  at(300,()=>hop(0)); }},
+/* 29 ------------------------------------------------------------ */
+{id:'FINAL_ARCHITECTURE',ph:6,dur:4000,active:['pod1','pod2','http','iiop','route'],focus:[],
+ title:'Final architecture',
+ what:'Developer → GitLab source repo → GitLab CI/CD (BUILD → artifact, CONTAINERIZE → Liberty application image → Quay, DEPLOY → GitLab deployment repo) → Argo CD → Helm → Red Hat OpenShift → WebSphere Liberty. Liberty pods serve HTTP via Service + Route and IIOP via the internal service.',
+ why:'Git is the source of truth for application source and deployment configuration.',
+ run(){ for(const w in WIRES) wire(w); lbl('lbRoute','lbIiop','lbMount','lbPull');
+  flow('client2route','route2http','http2pod1','http2pod2','ejb2iiop','iiop2pod1','iiop2pod2');
+  tr(()=>{ const n=note('RUNTIME TOPOLOGY',`<div class="mono" style="font-size:10.5px;line-height:1.6;white-space:pre;color:#cbd5e1">                 ┌── <span style="color:#7dd3fc">HTTP Service</span> ── <span style="color:#fca5a5">OpenShift Route</span> ── External Client
+<span style="color:#93c5fd">Liberty Pod(s)</span> ──┤
+                 └── <span style="color:#c4b5fd">IIOP Service</span> ── Internal EJB Communication</div>`,498,382,'var(--ok)',470); });
+  at(400,()=>cls('banner','show')); }}
+];
+
+/* =====================================================================
+   UI
+   ===================================================================== */
+function updateUI(){
+  const s=STEPS[STEP], ph=PHASES[s.ph];
+  txt('stepno',`Step ${STEP+1} / ${STEPS.length}`);
+  const pc=$('phasechip'); pc.textContent=`0${s.ph+1} · ${ph.k}`; pc.style.color=ph.c;
+  txt('stitle',s.title); txt('sstate','STATE: '+s.id); txt('swhat',s.what); txt('swhy',s.why);
+  const cp=$('capP'); cp.textContent=`0${s.ph+1} · ${ph.k}  ·  STEP ${STEP+1}/${STEPS.length}`; cp.style.color=ph.c;
+  txt('capT',s.title); html('capW','<b>WHAT</b>'+s.what); html('capY','<b>WHY</b>'+s.why);
+  [...$('tl').children].forEach((b,i)=>{ b.classList.toggle('done',i<STEP); b.classList.toggle('cur',i===STEP); });
+  [...$('jump').children].forEach((b,i)=>b.classList.toggle('on',i===s.ph));
+  [...$('phases').children].forEach((b,i)=>b.classList.toggle('on',i<=s.ph));
+  $('tlprog').firstChild.style.width=(STEP/(STEPS.length-1)*100)+'%';
+}
+function setMode(m){ mode=m; document.body.classList.toggle('paused',m==='paused');
+  $('bPlay').innerHTML=m==='playing'?'⏸<span class="bt"> Pause</span>':'▶<span class="bt"> Play</span>'; cls('bPause','on',m==='paused'); }
+const narrow=()=>innerWidth<900;
+function inspect(k){ const I=INFO[k]; if(!I) return;
+  if(selKey) cls(selKey,'sel',false); selKey=k; cls(k,'sel');
+  const p=$('insp'); p.style.setProperty('--c',COL[k]);
+  p.innerHTML=`<h4>Inspector</h4><div class="ih"><i></i>${I.t}</div><p>${I.d}</p>${I.l&&I.l.length?`<ul>${I.l.map(x=>`<li>${x}</li>`).join('')}</ul>`:''}`;
+  if(document.body.classList.contains('pres')||narrow()){ const n=note(I.t,I.d,L[k].x,Math.min(L[k].y+L[k].h+8,H-120),COL[k],260); if(n) setTimeout(()=>n.remove(),5000); }
+}
+function build(){
+  const tl=$('tl'), phs=$('phases'), jp=$('jump');
+  STEPS.forEach((s,i)=>{ const b=document.createElement('button'); b.style.setProperty('--pc',PHASES[s.ph].c); b.title=`${i+1}. ${s.title}  [${s.id}]`; b.onclick=()=>go(i); tl.appendChild(b); });
+  PHASES.forEach((p,i)=>{ const n=STEPS.filter(s=>s.ph===i).length, first=STEPS.findIndex(s=>s.ph===i);
+    const d=document.createElement('div'); d.style.flex=n; d.style.setProperty('--pc',p.c); d.textContent=`0${i+1} ${p.k}`; d.onclick=()=>go(first); phs.appendChild(d);
+    const b=document.createElement('button'); b.style.setProperty('--pc',p.c); b.innerHTML=`<i></i>0${i+1} · ${p.k}`; b.onclick=()=>go(first); jp.appendChild(b); });
+  $('bPlay').onclick=()=>{ if(mode==='playing'){ setMode('paused'); return; } if(mode==='step' && STEP===STEPS.length-1 && !tasks.length && !tweens.length){ go(0); } setMode('playing'); };
+  $('bPause').onclick=()=>setMode('paused');
+  $('bRestart').onclick=()=>{ go(0); setMode('playing'); };
+  $('bNext').onclick=()=>{ if(mode!=='playing') setMode('step'); go(STEP+1); };
+  $('bPrev').onclick=()=>{ if(mode!=='playing') setMode('step'); go(STEP-1); };
+  [...$('speed').children].forEach(b=>b.onclick=()=>{ speed=+b.dataset.v; document.documentElement.style.setProperty('--sp',speed);
+    [...$('speed').children].forEach(x=>x.classList.toggle('on',x===b)); });
+  $('bFollow').onclick=()=>{ follow=!follow; cls('bFollow','on',follow); camera(); };
+  $('bPres').onclick=togglePres;
+  vp.addEventListener('click',e=>{ if(dragged) return; const c=e.target.closest('[data-k]'); if(c) inspect(c.dataset.k); });
+  const zc=k=>{ const v=vp.getBoundingClientRect(); zoomAt(k,v.width/2,v.height/2); };
+  $('zIn').onclick=()=>zc(1.3); $('zOut').onclick=()=>zc(1/1.3); $('zFit').onclick=resetView;
+  let rz; addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(()=>{ userView=null; camera(); fitLens(); },120); });
+  addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT') return;
+    if(e.code==='Space'){ e.preventDefault(); $('bPlay').click(); }
+    else if(e.key==='ArrowRight') $('bNext').click(); else if(e.key==='ArrowLeft') $('bPrev').click();
+    else if(e.key==='p'||e.key==='P') togglePres(); else if(e.key==='r'||e.key==='R') $('bRestart').click();
+    else if(e.key==='Escape' && document.body.classList.contains('pres')) togglePres(); });
+}
+let prevFollow=false;
+function togglePres(){ const p=document.body.classList.toggle('pres'); cls('bPres','on',p);
+  if(p){ prevFollow=follow; follow=true; } else follow=prevFollow; cls('bFollow','on',follow);
+  userView=null; setTimeout(()=>{ camera(); fitLens(); },60); }
+
+if(narrow()){ follow=true; cls('bFollow','on',true); }
+build(); go(0); setMode('playing'); requestAnimationFrame(frame);
+</script>
+<style>
+.term .cmd::before{content:"$ ";color:#34d399}
+#devterm{font-size:8.8px}
+#wires{z-index:3}
+#pipe,#ocp{z-index:2}
+.fr .n,.fr .d{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#quay .fr span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res{margin-top:2px;padding:3px 7px}
+.gear{margin:6px 0 5px;white-space:nowrap}
+.pod .img{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9px}
+.pod .hd .t span{font-size:8.8px}
+.pod .hd .t b{font-size:9.5px;letter-spacing:.06em}
+.pod .pstat{font-size:8.4px;padding:1px 6px}
+.pod .hd .t span{overflow:visible}
+.mounts{flex-wrap:nowrap}.mounts span{font-size:8.2px;padding:2px 4px}
+.k8 .st,.pod .hd .st{display:none}
+.k8[data-s=ok],.pod[data-s=ok]{border-color:rgba(34,197,94,.5)}
+.k8[data-s=proc],.pod[data-s=proc]{border-color:rgba(59,130,246,.65)}
+.k8[data-s=wait],.pod[data-s=wait]{border-color:rgba(251,191,36,.6)}
+.k8 .hd .t span{font-size:9px}
+.lane{padding:7px 8px}
+.lane .r2{white-space:nowrap}
+.lane .r2 .chip{font-size:9.2px;padding:2px 6px}
+
+/* ---------- responsive shell ---------- */
+body{height:100vh;height:100dvh}
+#top{flex-wrap:nowrap;min-width:0}
+#bar{display:flex;align-items:center;gap:10px;flex:none}
+.btn{white-space:nowrap}
+#vp{touch-action:none;cursor:grab}
+#vp:active{cursor:grabbing}
+#vp .comp{cursor:pointer}
+#zoomc{position:absolute;right:14px;bottom:34px;z-index:30;display:flex;flex-direction:column;gap:5px}
+#zoomc button{width:32px;height:32px;border-radius:9px;border:1px solid var(--line2);background:rgba(15,23,42,.88);color:#cbd5e1;font-size:16px;line-height:1;
+  backdrop-filter:blur(6px);transition:background .2s}
+#zoomc button:hover{background:rgba(51,65,85,.95)}
+body.pres #zoomc{bottom:auto;top:14px}
+body.lensopen #zoomc,body.lensopen #banner{opacity:0;pointer-events:none}
+#lens{overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+#lens.show{transform:translate(-50%,-50%) scale(var(--ls,1))}
+#banner{max-width:calc(100% - 32px)}
+/* the presentation caption compacts while a detail lens is open so the lens gets the space */
+body.pres.lensopen #cap{max-width:none;right:22px;padding:10px 16px}
+body.pres.lensopen #cap h2{font-size:17px}
+body.pres.lensopen #cap p{font-size:13px;margin-top:4px}
+body.pres.lensopen #cap p.w{display:none}
+
+@media (max-width:1280px){
+  #brand p{display:none}
+  #bar{gap:6px}
+  .btn{padding:0 10px}
+}
+@media (max-width:1180px){
+  .bt{display:none}
+  .btn{padding:0 11px;font-size:13px}
+  #main{grid-template-columns:1fr 300px}
+  body.pres #main{grid-template-columns:1fr}
+}
+@media (max-width:900px){
+  #top{flex-wrap:wrap;padding:8px 10px;gap:6px}
+  #brand{flex:1 1 100%;gap:9px}
+  #brand h1{font-size:14px}
+  #brand .logo{width:28px;height:28px}
+  #bar{width:100%;gap:6px;flex-wrap:wrap}
+  .ctrls{gap:5px}
+  .btn{height:36px;min-width:38px;justify-content:center}
+  .seg{height:36px}
+  .hide-m{display:none!important}
+  #stepno{margin-left:auto;min-width:0;padding-left:4px}
+  #main{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
+  #side{border-left:0;border-top:1px solid var(--line);max-height:36vh;max-height:36dvh}
+  #side .sec{padding:12px 14px}
+  #stitle{font-size:16px}
+  .qa{margin-top:10px}
+  .qa p{font-size:12.5px}
+  #hint{display:none}
+  #zoomc{right:10px;bottom:10px}
+  #tlwrap{padding:6px 10px 8px}
+  #phases{display:none}
+  #tl{gap:2px;height:14px}
+  #banner{white-space:normal;text-align:center;font-size:12px;border-radius:14px;padding:8px 14px;width:calc(100% - 32px)}
+  #lens{width:calc(100% - 16px)!important}
+  #lens .lh{flex-wrap:wrap;padding:10px 12px;gap:4px 10px}
+  #lens .lh .zoom{display:none}
+  #lensbody{padding:12px}
+  .dgrid,.lsgrid{grid-template-columns:1fr;gap:12px}
+  .checks{grid-template-columns:1fr}
+  .dl{font-size:11px}
+  .big-term{font-size:10px}
+  .logs{height:112px}
+  .fs{font-size:9.2px;overflow-x:auto;scrollbar-width:none}
+  .dgrid>*,.lsgrid>*{min-width:0}
+  .health{flex-wrap:wrap}
+  .diff{overflow-x:auto}
+  .big-term{white-space:pre-wrap;word-break:break-all}
+  .logs{white-space:pre;overflow:hidden}
+  body.pres #cap,body.pres.lensopen #cap{left:8px;right:8px;bottom:8px;max-width:none;padding:10px 14px;border-radius:12px}
+  body.pres #cap h2{font-size:17px}
+  body.pres #cap p{font-size:13px;margin-top:5px}
+  body.pres #cap p.w{display:none}
+  body.pres #cap p{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  body.pres.lensopen #cap p{-webkit-line-clamp:2}
+}
+@media (max-width:520px){
+  #side{max-height:36vh;max-height:36dvh}
+  .btn{height:34px;min-width:36px;padding:0 9px}
+  .seg{height:34px}
+  .seg button{padding:0 8px}
+  #stepno{font-size:11px}
+  .jump{grid-template-columns:1fr}
+}
+</style>
+</body>
+</html>
